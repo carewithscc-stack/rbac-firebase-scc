@@ -168,7 +168,7 @@
             const box = document.getElementById('notification-box');
             const msgEl = document.getElementById('notification-message');
             
-            box.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-yellow-600', 'opacity-100', 'bg-indigo-600');
+            box.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-yellow-600', 'bg-indigo-600', 'opacity-100');
             box.classList.add('opacity-0');
 
             if (type === 'success') box.classList.add('bg-green-600');
@@ -241,8 +241,6 @@
                     else spinner.classList.add('hidden');
                 }
             });
-            // Re-render only necessary elements if possible, or trigger a full view refresh if necessary
-            // For now, we rely on Firebase onSnapshot to re-render, but for loading state, we call renderView() if needed.
         }
         
         // --- FIREBASE INITIALIZATION & AUTH ---
@@ -410,6 +408,8 @@
             toggleLoading(true);
             const email = e.target.email.value;
             const password = e.target.password.value;
+            const errorBox = document.getElementById('login-error-message');
+            errorBox.classList.add('hidden'); // Reset error message on new attempt
 
             if (!email || !password) {
                 window.showNotification('Email dan password tidak boleh kosong.', 'warning');
@@ -428,12 +428,14 @@
             } catch (error) {
                 let message = 'Login gagal. Silakan coba lagi.';
                 if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-                    message = 'Email atau password salah.';
+                    message = 'Email atau password salah. Pastikan akun sudah terdaftar.';
                 } else if (error.code === 'auth/invalid-email') {
                     message = 'Format email tidak valid.';
                 } else if (error.code === 'auth/operation-not-allowed') {
                     // Specific error handling for the reported issue
-                    message = 'Login gagal: Metode Email/Password belum diaktifkan di konsol Firebase Anda.';
+                    message = 'LOGIN GAGAL: Penyedia Email/Password TIDAK AKTIF. HARUS diaktifkan di Konsol Firebase > Authentication > Sign-in method.';
+                    errorBox.textContent = message;
+                    errorBox.classList.remove('hidden');
                 }
                 window.showNotification(message, 'error');
                 console.error('Login Error:', error);
@@ -700,6 +702,9 @@
                         <p class="text-sm text-gray-500 mt-2">Masuk sebagai Karyawan/Admin</p>
                     </div>
                     <form onsubmit="window.handleLogin(event)">
+                        <!-- Error Message Display Area - Visible only on auth/operation-not-allowed error -->
+                        <div id="login-error-message" class="hidden p-3 mb-4 text-sm font-medium text-red-800 bg-red-100 border border-red-300 rounded-lg"></div>
+
                         <div class="mb-4">
                             <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
                             <input type="email" id="email" name="email" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="employee@scc.com" required>
@@ -877,8 +882,14 @@
 
         function isAttendanceRecorded(type) {
             const today = new Date().toISOString().split('T')[0];
-            return appState.attendance.some(a => a.userId === appState.userUid && a.date === today && a.type === type);
+            const userAttendance = appState.attendance
+                .filter(a => a.userId === appState.userUid && a.date === today && a.type === type)
+                .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); // Newest first
+
+            // Cek apakah ada record absen masuk/pulang hari ini (untuk mencegah duplikasi)
+            return userAttendance.length > 0;
         }
+
 
         function renderUserAttendanceToday() {
             const today = new Date().toISOString().split('T')[0];
