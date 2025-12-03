@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RBAC App - Siap Deploy</title>
+    <!-- CDN untuk Tailwind CSS (untuk styling) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- CDN untuk React dan ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- CDN untuk Babel (mengizinkan browser membaca JSX di <script type="text/babel">) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- CDN untuk Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Atur log level ke Debug untuk melihat semua aktivitas Firebase di console
+        setLogLevel('debug');
+
+        // --- GLOBAL VARIABLES (Diambil dari lingkungan Canvas) ---
+        // Jika Anda menjalankan file ini di luar Canvas, Anda harus mengisi nilai-nilai ini secara manual
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'rbac-app-demo';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : { apiKey: "API_KEY_ANDA", authDomain: "DOMAIN_ANDA", projectId: "PROJECT_ID_ANDA" /* ... lainnya */ };
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // --- 1. INISIALISASI FIREBASE ---
+        window.app = initializeApp(firebaseConfig);
+        window.db = getFirestore(window.app);
+        window.auth = getAuth(window.app);
+        window.initialAuthToken = initialAuthToken; // Simpan untuk digunakan di kode Babel
+
+        // Export fungsi-fungsi Firebase ke window agar bisa diakses oleh kode Babel
+        window.FirebaseServices = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+            getFirestore, doc, onSnapshot, setLogLevel
+        };
+        window.GlobalConfig = { appId, initialAuthToken };
+    </script>
+</head>
+<body>
+    <div id="root">
+        <!-- Loader sederhana sebelum React dimuat -->
+        <div class="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            <p class="mt-4 text-lg text-indigo-600">Memuat Aplikasi...</p>
+        </div>
+    </div>
+
+    <!-- Kode React/JSX dimuat melalui Babel -->
+    <script type="text/babel">
+        // Mengambil variabel global dan layanan Firebase dari window
+        const { useState, useEffect, createContext, useContext } = React;
+        const { appId, initialAuthToken } = window.GlobalConfig;
+        const { 
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
+            signInWithEmailAndPassword, signOut, getFirestore, doc, onSnapshot 
+        } = window.FirebaseServices;
+
+        const db = window.db;
+        const auth = window.auth;
+
+        // Path Firestore untuk peran pengguna (sesuai aturan keamanan publik)
+        const getUserRoleDocRef = (userId) => {
+            // Path: /artifacts/{appId}/public/data/user_roles/{userId}
+            return doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', userId);
+        };
+
+        // --- 2. CONTEXT UNTUK MANAJEMEN STATUS AUTH & ROLE ---
+        const AuthContext = createContext(null);
+        const useAuth = () => useContext(AuthContext);
+
+        // --- 3. KOMPONEN PENYEDIA (PROVIDER) AUTHENTIKASI ---
+        const AuthProvider = ({ children }) => {
+            const [user, setUser] = useState(null); 
+            const [role, setRole] = useState('loading'); 
+            const [isAuthReady, setIsAuthReady] = useState(false);
+
+            useEffect(() => {
+                let unsubscribeRole = () => {};
+                
+                // --- 3a. Inisialisasi Auth Pertama Kali ---
+                const setupAuth = async () => {
+                    if (initialAuthToken) {
+                        try {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } catch (error) {
+                            console.error("Gagal masuk dengan token kustom:", error);
+                            await signInAnonymously(auth);
+                        }
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    setIsAuthReady(true);
+                };
+
+                // Memastikan inisialisasi berjalan sekali
+                if (auth && !isAuthReady) {
+                    setupAuth();
+                }
+
+                // --- 3b. Listener Perubahan Status Autentikasi (WAJIB) ---
+                const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+                    setUser(currentUser);
+                    
+                    unsubscribeRole(); 
+
+                    if (currentUser) {
+                        const userDocRef = getUserRoleDocRef(currentUser.uid);
+                        
+                        unsubscribeRole = onSnapshot(userDocRef, (docSnap) => {
+                            if (docSnap.exists()) {
+                                const userRole = docSnap.data().role || 'member';
+                                console.log(`Peran pengguna (UID: ${currentUser.uid}): ${userRole}`);
+                                setRole(userRole);
+                            } else {
+                                console.log(`Dokumen peran tidak ditemukan untuk UID: ${currentUser.uid}`);
+                                setRole('guest');
+                            }
+                        }, (error) => {
+                            console.error("Error mengambil peran dari Firestore:", error);
+                            setRole('guest');
+                        });
+                    } else {
+                        setRole('guest');
+                    }
+                });
+
+                return () => {
+                    unsubscribeAuth();
+                    unsubscribeRole();
+                };
+            }, []);
+
+            const contextValue = { user, role, isAuthReady, db, auth, appId };
+
+            // Hanya render children setelah auth selesai
+            if (!isAuthReady) {
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                        <p className="mt-4 text-lg text-indigo-600">Menunggu Autentikasi...</p>
+                    </div>
+                );
+            }
+
+            return (
+                <AuthContext.Provider value={contextValue}>
+                    {children}
+                </AuthContext.Provider>
+            );
+        };
+
+        // --- 4. KOMPONEN LOGIN ---
+        const LoginComponent = () => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+            const { auth } = useAuth();
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+
+                try {
+                    await signInWithEmailAndPassword(auth, email, password);
+                } catch (err) {
+                    console.error(err);
+                    let errorMessage = "Gagal Login. Cek Email dan Password Anda.";
+                    if (err.code === 'auth/user-not-found') {
+                        errorMessage = "Pengguna tidak ditemukan. Daftar atau cek kembali email.";
+                    } else if (err.code === 'auth/wrong-password') {
+                        errorMessage = "Password salah.";
+                    } else if (err.code === 'auth/invalid-email') {
+                         errorMessage = "Format Email tidak valid.";
+                    }
+                    setError(errorMessage);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
+                    <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl transition duration-500 ease-in-out transform hover:scale-[1.01]">
+                        <h2 className="text-3xl font-extrabold text-gray-800 text-center mb-6">Aplikasi RBAC Login</h2>
+                        <p className="text-sm text-center text-gray-500 mb-6">
+                            Gunakan <code>admin@example.com</code> atau <code>member@example.com</code>
+                        </p>
+                        <form onSubmit={handleLogin} className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                <input
+                                    type="email"
+                                    placeholder="contoh@domain.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                <input
+                                    type="password"
+                                    placeholder="********"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                                    required
+                                />
+                            </div>
+                            {error && (
+                                <p className="text-sm text-red-600 bg-red-100 p-3 rounded-lg border border-red-200">{error}</p>
+                            )}
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className={`w-full py-3 px-4 rounded-lg text-white font-semibold shadow-md transition duration-300 ease-in-out ${
+                                    loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800'
+                                }`}
+                            >
+                                {loading ? 'Memproses...' : 'Login'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 5. KOMPONEN DASHBOARD ADMIN ---
+        const AdminDashboard = () => {
+            return (
+                <div className="p-8 bg-indigo-50 rounded-xl shadow-lg border-2 border-indigo-200">
+                    <div className="flex items-center space-x-3 text-indigo-700 mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                        </svg>
+                        <h1 className="text-3xl font-bold">Dashboard Admin</h1>
+                    </div>
+                    <p className="text-xl text-gray-700 mt-4">
+                        Selamat datang, Administrator! Anda memiliki akses penuh ke semua fitur.
+                    </p>
+                    <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600">
+                        <li>Manajemen Pengguna (CRUD)</li>
+                        <li>Pengaturan Sistem Global</li>
+                        <li>Laporan Keuangan Rahasia</li>
+                    </ul>
+                </div>
+            );
+        };
+
+        // --- 6. KOMPONEN DASHBOARD MEMBER ---
+        const MemberDashboard = () => {
+            return (
+                <div className="p-8 bg-green-50 rounded-xl shadow-lg border-2 border-green-200">
+                     <div className="flex items-center space-x-3 text-green-700 mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" />
+                        </svg>
+                        <h1 className="text-3xl font-bold">Dashboard Member</h1>
+                    </div>
+                    <p className="text-xl text-gray-700 mt-4">
+                        Selamat datang kembali! Anda dapat mengakses fitur dasar aplikasi.
+                    </p>
+                    <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600">
+                        <li>Lihat Profil Saya</li>
+                        <li>Mengelola Data Pribadi</li>
+                        <li>Mengirim Feedback ke Admin</li>
+                    </ul>
+                </div>
+            );
+        };
+
+        // --- 7. KOMPONEN UTAMA (MAIN APP) ---
+        const AppContent = () => {
+            const { user, role, auth } = useAuth();
+            const [isLoggingOut, setIsLoggingOut] = useState(false);
+            
+            let DashboardComponent = null;
+            let roleColor = 'text-gray-500';
+
+            if (role === 'admin') {
+                DashboardComponent = AdminDashboard;
+                roleColor = 'text-indigo-600';
+            } else if (role === 'member') {
+                DashboardComponent = MemberDashboard;
+                roleColor = 'text-green-600';
+            } else {
+                // Biarkan DashboardComponent null jika peran adalah 'guest'
+            }
+
+            const handleLogout = async () => {
+                setIsLoggingOut(true);
+                try {
+                    await signOut(auth);
+                } catch (error) {
+                    console.error("Gagal Logout:", error);
+                } finally {
+                    setIsLoggingOut(false);
+                }
+            };
+
+            if (user && role === 'loading') {
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                        <p className="mt-4 text-lg text-indigo-600">Memuat data peran...</p>
+                    </div>
+                );
+            }
+            
+            if (!user || role === 'guest') {
+                return <LoginComponent />;
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-50 p-6 md:p-10">
+                    <div className="flex justify-between items-center mb-10 pb-4 border-b border-gray-200">
+                        <h1 className="text-4xl font-extrabold text-gray-900">
+                            Sistem Kontrol Akses Berbasis Peran
+                        </h1>
+                        <div className="flex items-center space-x-4">
+                            <span className={`text-lg font-semibold ${roleColor}`}>
+                                Peran: {role.toUpperCase()}
+                            </span>
+                            <button
+                                onClick={handleLogout}
+                                disabled={isLoggingOut}
+                                className={`px-4 py-2 rounded-lg text-white font-medium transition duration-300 ease-in-out ${
+                                    isLoggingOut ? 'bg-red-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 shadow-md'
+                                }`}
+                            >
+                                {isLoggingOut ? 'Keluar...' : 'Logout'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="mt-8">
+                        {DashboardComponent ? (
+                            <DashboardComponent />
+                        ) : (
+                            <div className="p-6 bg-yellow-100 rounded-xl border border-yellow-300 text-yellow-800">
+                                <p className="font-semibold">Peringatan: Peran {role} tidak dikenal atau tidak memiliki dashboard khusus.</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Tampilkan detail teknis di bagian bawah */}
+                    <div className="mt-12 pt-8 border-t border-gray-200 text-sm text-gray-500">
+                        <p>UID Pengguna: <code className="bg-gray-200 p-1 rounded break-all">{user.uid}</code></p>
+                        <p>App ID: <code className="bg-gray-200 p-1 rounded">{appId}</code></p>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- KOMPONEN ROOT: Pembungkus Auth Provider ---
+        function App() {
+            return (
+                <AuthProvider>
+                    <AppContent />
+                </AuthProvider>
+            );
+        }
+
+        // Render aplikasi ke DOM
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
+    </script>
+</body>
+</html>
