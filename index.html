@@ -283,7 +283,8 @@
                 if (user) {
                     appState.isLoggedIn = true;
                     appState.userUid = user.uid;
-                    appState.username = user.email || `User-${user.uid.substring(0, 6)}`;
+                    // For authenticated users, try to use email if available, otherwise use a shortened UID
+                    appState.username = user.email || `User-${user.uid.substring(0, 6)}`; 
                     
                     // Subscribe to role and data immediately upon successful login/auth
                     subscribeToRole(user.uid);
@@ -301,14 +302,17 @@
                 }
             });
             
-            // Attempt automatic sign-in for Canvas environment
-            if (!auth.currentUser && INITIAL_AUTH_TOKEN) {
-                signInWithCustomToken(auth, INITIAL_AUTH_TOKEN).catch(error => {
-                    console.warn(`Custom token failed. Starting as Guest.`);
-                    signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
-                });
-            } else if (!auth.currentUser) {
-                 signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
+            // Attempt automatic sign-in for Canvas environment only if no user is currently logged in.
+            // This prevents the automatic token/anon sign-in from overriding a manual email/password sign-in.
+            if (!auth.currentUser) {
+                if (INITIAL_AUTH_TOKEN) {
+                    signInWithCustomToken(auth, INITIAL_AUTH_TOKEN).catch(error => {
+                        console.warn(`Custom token failed. Starting as Guest.`);
+                        signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
+                    });
+                } else {
+                     signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
+                }
             }
         }
 
@@ -413,15 +417,23 @@
                 return;
             }
             try {
+                 // Sign out the current user (could be anonymous/custom token user) before logging in
+                 if (auth.currentUser) {
+                     await signOut(auth);
+                 }
+                 
                 await signInWithEmailAndPassword(auth, email, password);
                 window.showNotification(`Login berhasil! Selamat datang.`);
                 // Auth state listener handles the role fetch and view change
             } catch (error) {
                 let message = 'Login gagal. Silakan coba lagi.';
-                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                     message = 'Email atau password salah.';
                 } else if (error.code === 'auth/invalid-email') {
                     message = 'Format email tidak valid.';
+                } else if (error.code === 'auth/operation-not-allowed') {
+                    // Specific error handling for the reported issue
+                    message = 'Login gagal: Metode Email/Password belum diaktifkan di konsol Firebase Anda.';
                 }
                 window.showNotification(message, 'error');
                 console.error('Login Error:', error);
@@ -436,7 +448,7 @@
                 await signOut(auth);
                 unsubscribeAll();
                 window.showNotification('Anda telah logout.', 'info');
-                // Auth state listener handles the view change to Guest/Login
+                // The onAuthStateChanged listener will fire and then sign in anonymously automatically
             } catch (error) {
                 window.showNotification('Gagal logout.', 'error');
             } finally {
@@ -579,7 +591,7 @@
             mainContent.classList.remove('justify-start', 'items-start'); 
             mainContent.classList.add('justify-center', 'items-center'); 
 
-            if (!appState.isLoggedIn) {
+            if (!appState.isLoggedIn || appState.role === 'guest') {
                 // User is Anonymous/Guest -> Show Guest Order Input
                 renderGuestOrderInput();
             } else if (appState.role === 'loading') {
@@ -619,9 +631,8 @@
         }
         
         function renderGuestOrderInput() {
-            if (appState.isLoggedIn) {
-                // If logged in, but somehow landed here, show login screen (shouldn't happen often)
-                renderLogin();
+            if (auth.currentUser && !auth.currentUser.isAnonymous) {
+                // If the user is logged in with email/password, they should not see this screen
                 return;
             }
             
@@ -672,14 +683,12 @@
         }
 
         window.handleShowLogin = function() {
-            // First sign out anon user to ensure a clean state for email/password login
-            window.handleSignOut().then(() => {
-                // After successful sign out (or anon sign in failure), render the login form
-                renderLogin();
-            }).catch(() => {
-                // If sign out fails, proceed to render login anyway
-                renderLogin();
-            });
+            // Sign out current user (anon/custom token) before showing login form
+            if (auth.currentUser) {
+                signOut(auth).then(() => renderLogin());
+            } else {
+                 renderLogin();
+            }
         }
         
         function renderLogin() {
@@ -714,11 +723,19 @@
         }
 
         window.handleShowGuestOrder = function() {
-             // Sign in anonymously to get a UID for guest orders
-             signInAnonymously(auth).catch(err => {
-                console.error("Anon sign-in failed for Guest view:", err);
-                window.showNotification('Gagal masuk sebagai tamu. Coba refresh.', 'error');
-            });
+             // Sign out the current user (if any) to force the view back to guest/anon mode
+            if (auth.currentUser && !auth.currentUser.isAnonymous) {
+                signOut(auth).then(() => {
+                    // Then the onAuthStateChanged listener will handle the anonymous sign-in and view rendering
+                });
+            } else if (!auth.currentUser) {
+                // If not signed in at all, just sign in anonymously and the listener will render the view
+                signInAnonymously(auth).catch(err => {
+                    console.error("Anon sign-in failed for Guest view:", err);
+                    window.showNotification('Gagal masuk sebagai tamu. Coba refresh.', 'error');
+                });
+            }
+             // If already anonymous, rendering will happen on its own via onAuthStateChanged
         }
         
         function renderDashboard() {
