@@ -3,609 +3,774 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analisis Arsitektur RBAC Firebase</title>
+    <title>SCC - Sneakers Care Corner Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #fdfaf6; color: #333; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); transition: transform 0.2s; }
-        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
-        .interactive-btn { transition: all 0.2s; }
-        .interactive-btn:active { transform: scale(0.95); }
-        /* Chart Container Styling per requirements */
-        .chart-container {
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .btn-primary { transition: all 0.15s; }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3); }
+        .btn-primary:active { transform: translateY(0); }
+        /* Custom modal styles */
+        .modal {
+            background-color: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            z-index: 50;
+        }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Specific styles for scan page simulation */
+        #scan-simulator {
+            height: 150px;
+            background: #111;
+            border: 4px solid #4f46e5;
             position: relative;
+            overflow: hidden;
+        }
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
-            max-width: 600px; /* Tailwind max-w-xl is approx 576px, max-w-2xl is 672px. Using explicit for safety */
-            margin-left: auto;
-            margin-right: auto;
-            height: 300px;
-            max-height: 400px;
+            height: 2px;
+            background: #4f46e5;
+            box-shadow: 0 0 10px #4f46e5, 0 0 20px #4f46e5;
+            animation: scanning 3s infinite linear;
         }
-        @media (min-width: 768px) {
-            .chart-container {
-                height: 350px;
-            }
-        }
-        /* Architecture Diagram Nodes */
-        .arch-node {
-            border-left: 4px solid;
-        }
-        .connection-line {
-            width: 2px;
-            background-color: #e5e7eb;
-            margin: 0 auto;
+        @keyframes scanning {
+            0% { transform: translateY(0%); }
+            50% { transform: translateY(1000%); }
+            100% { transform: translateY(0%); }
         }
     </style>
-    <!-- Chosen Palette: Warm Neutrals (Background #fdfaf6) with Technical Accents (Indigo #4f46e5 for Admin/Core, Emerald #10b981 for Success/Member, Slate #64748b for Structure) -->
-    <!-- Application Structure Plan:
-         1. Header: Introduction to the analysis.
-         2. Component Breakdown (Chart): Interactive Doughnut chart to visualize the weight and relationship of the 4 key components identified in the report.
-         3. Interactive Architecture Map (Custom UI): A vertical flow diagram using HTML/Tailwind (NO SVG) to demonstrate the data flow from Init -> Auth -> Role -> Render. Users click nodes to see details.
-         4. Logic Simulator (Interactive State): A functional simulation of the AppContent logic. Users can toggle "roles" and see the UI update in real-time, mirroring the 'Role-Based Rendering' section.
-         5. Summary & Status: Final conclusion block.
-         This structure moves from abstract concepts (chart) to structural understanding (diagram) to practical application (simulator).
-    -->
-    <!-- Visualization & Content Choices:
-         1. Component Overview -> Inform -> Doughnut Chart (Chart.js) -> Click slice to update text -> Shows the holistic view of the system parts.
-         2. Architecture Flow -> Organize -> HTML Flex/Grid Layout with CSS Borders (Connectors) -> Click node to highlight and explain -> Visualizes the linear dependency described in the report.
-         3. Role Logic -> Change/Simulation -> JS State update changing DOM elements -> Buttons change 'virtual state' -> Demonstrates the 'onSnapshot' and conditional rendering logic physically.
-         4. Text Content -> Inform -> Structured HTML blocks -> Extracted directly from 'rbac_analysis.md'.
-         CONFIRMATION: NO SVG graphics used. NO Mermaid JS used.
-    -->
 </head>
-<body class="bg-[#fdfaf6] text-slate-800 antialiased min-h-screen flex flex-col">
+<body>
 
-    <!-- Navigation / Header -->
-    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-                <span class="text-2xl font-bold text-indigo-700">RBAC</span>
-                <span class="text-sm bg-indigo-100 text-indigo-700 py-1 px-2 rounded-full font-medium">Analisis Arsitektur</span>
+    <!-- Main Application Container -->
+    <div id="app" class="min-h-screen flex flex-col">
+        <!-- Header (Visible on Dashboard, Member, Guest) -->
+        <header id="app-header" class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40 hidden">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                <h1 class="text-2xl font-black text-gray-900 flex items-center gap-2">
+                    <i class="fas fa-shoe-prints text-indigo-600"></i> SCC
+                </h1>
+                <div class="flex items-center space-x-4">
+                    <span id="user-role-display" class="bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1 rounded-full uppercase"></span>
+                    <button onclick="window.handleSignOut()" class="text-sm text-red-500 hover:text-red-700 transition font-medium">
+                        <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                    </button>
+                </div>
             </div>
-            <nav class="hidden md:flex space-x-8 text-sm font-medium text-gray-500">
-                <a href="#komponen" class="hover:text-indigo-600 transition">Komponen</a>
-                <a href="#arsitektur" class="hover:text-indigo-600 transition">Alur Data</a>
-                <a href="#simulasi" class="hover:text-indigo-600 transition">Simulasi</a>
-            </nav>
+        </header>
+
+        <!-- Main Content Area -->
+        <main id="main-content" class="flex-grow flex justify-center items-center p-4">
+            <!-- Content will be injected here (Login, Dashboard, Order Form) -->
+        </main>
+
+        <!-- Confirmation Modal -->
+        <div id="confirmation-modal" class="fixed inset-0 modal items-center justify-center hidden" onclick="window.closeModal()">
+            <div class="card p-6 w-11/12 max-w-sm" onclick="event.stopPropagation()">
+                <h3 id="modal-title" class="text-xl font-bold text-gray-800 mb-4">Konfirmasi</h3>
+                <p id="modal-message" class="text-gray-600 mb-6">Apakah Anda yakin ingin melanjutkan?</p>
+                <div class="flex justify-end space-x-3">
+                    <button onclick="window.closeModal()" class="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition">Batal</button>
+                    <button id="modal-confirm-btn" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 btn-primary">Konfirmasi</button>
+                </div>
+            </div>
         </div>
-    </header>
 
-    <main class="flex-grow">
-        <!-- Hero Section -->
-        <section class="max-w-4xl mx-auto px-4 py-12 sm:px-6 text-center">
-            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight text-gray-900 mb-6">
-                Sistem Kontrol Akses Berbasis Peran
-            </h1>
-            <p class="text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
-                Laporan interaktif ini menganalisis implementasi RBAC menggunakan Firebase Authentication dan Firestore. 
-                Jelajahi bagaimana inisialisasi global, penanganan autentikasi, pemetaan peran real-time, dan rendering kondisional bekerja bersama untuk menciptakan sistem keamanan yang solid.
-            </p>
-        </section>
-
-        <!-- Section 1: Komponen Kunci (Chart) -->
-        <section id="komponen" class="bg-white py-16 border-y border-gray-100">
-            <div class="max-w-6xl mx-auto px-4 sm:px-6">
-                <div class="mb-10 text-center md:text-left">
-                    <h2 class="text-3xl font-bold text-gray-900 mb-4">1. Komponen Kunci</h2>
-                    <p class="text-gray-600 max-w-3xl">
-                        Aplikasi ini dibangun di atas empat pilar utama yang memastikan keamanan dan responsivitas. 
-                        Klik pada diagram di bawah untuk mempelajari detail setiap komponen teknis yang ditemukan dalam analisis.
-                    </p>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-                    <!-- Chart Column -->
-                    <div class="bg-gray-50 p-6 rounded-2xl border border-gray-100 shadow-inner">
-                        <div class="chart-container">
-                            <canvas id="componentsChart"></canvas>
-                        </div>
-                        <p class="text-center text-xs text-gray-400 mt-4">Klik segmen diagram untuk detail</p>
-                    </div>
-
-                    <!-- Details Column -->
-                    <div>
-                        <div id="component-detail" class="bg-white p-8 rounded-xl border border-gray-200 shadow-lg min-h-[300px] flex flex-col justify-center transition-all duration-300">
-                            <h3 id="detail-title" class="text-2xl font-bold text-indigo-600 mb-4">Ringkasan Sistem</h3>
-                            <p id="detail-desc" class="text-gray-600 leading-relaxed text-lg">
-                                Sistem ini mengintegrasikan Firebase Auth dan Firestore untuk manajemen akses.
-                                Interaksi antara inisialisasi global dan state React menciptakan pengalaman pengguna yang mulus dan aman.
-                                Pilih komponen di samping untuk analisis mendalam.
-                            </p>
-                            <div id="detail-tag" class="mt-6 inline-block bg-gray-100 text-gray-600 px-3 py-1 rounded text-sm font-semibold w-max">
-                                Overview
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Section 2: Arsitektur Alur Data (Diagram) -->
-        <section id="arsitektur" class="py-16 bg-[#fdfaf6]">
-            <div class="max-w-5xl mx-auto px-4 sm:px-6">
-                <div class="mb-12 text-center">
-                    <h2 class="text-3xl font-bold text-gray-900 mb-4">2. Alur Data & Logika</h2>
-                    <p class="text-gray-600 max-w-2xl mx-auto">
-                        Visualisasi bagaimana data mengalir dari inisialisasi hingga tampilan antarmuka. 
-                        Struktur ini menjamin bahwa pengguna selalu terautentikasi sebelum peran diperiksa.
-                    </p>
-                </div>
-
-                <!-- Interactive Flow Map (Custom HTML/Tailwind implementation of a flowchart) -->
-                <div class="relative">
-                    <!-- Step 1 -->
-                    <div class="flex flex-col items-center group cursor-pointer" onclick="showFlowDetail(1)">
-                        <div class="w-full max-w-lg bg-white p-5 rounded-lg border-l-4 border-slate-500 shadow-sm hover:shadow-md transition-all arch-node">
-                            <div class="flex justify-between items-center">
-                                <h4 class="font-bold text-slate-700">1. Global Initialization</h4>
-                                <span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded">Window Scope</span>
-                            </div>
-                            <p class="text-sm text-gray-500 mt-2">Firebase services (auth, db) diinisialisasi di luar React.</p>
-                        </div>
-                        <div class="h-8 w-0.5 bg-slate-300 my-1"></div>
-                        <div class="text-slate-400 text-xl leading-none">↓</div>
-                    </div>
-
-                    <!-- Step 2 -->
-                    <div class="flex flex-col items-center mt-2 group cursor-pointer" onclick="showFlowDetail(2)">
-                        <div class="w-full max-w-lg bg-white p-5 rounded-lg border-l-4 border-blue-500 shadow-sm hover:shadow-md transition-all arch-node">
-                            <div class="flex justify-between items-center">
-                                <h4 class="font-bold text-blue-700">2. Authentication Handling</h4>
-                                <span class="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">Async/Await</span>
-                            </div>
-                            <p class="text-sm text-gray-500 mt-2">Cek Custom Token -> Fallback ke Anonymous. Dapatkan UID.</p>
-                        </div>
-                        <div class="h-8 w-0.5 bg-blue-300 my-1"></div>
-                        <div class="text-blue-400 text-xl leading-none">↓</div>
-                    </div>
-
-                    <!-- Step 3 -->
-                    <div class="flex flex-col items-center mt-2 group cursor-pointer" onclick="showFlowDetail(3)">
-                        <div class="w-full max-w-lg bg-white p-5 rounded-lg border-l-4 border-amber-500 shadow-sm hover:shadow-md transition-all arch-node">
-                            <div class="flex justify-between items-center">
-                                <h4 class="font-bold text-amber-700">3. Role Mapping (Firestore)</h4>
-                                <span class="text-xs bg-amber-100 text-amber-600 px-2 py-1 rounded">onSnapshot</span>
-                            </div>
-                            <p class="text-sm text-gray-500 mt-2">Mendengarkan perubahan dokumen <code>user_roles/{userId}</code> secara real-time.</p>
-                        </div>
-                        <div class="h-8 w-0.5 bg-amber-300 my-1"></div>
-                        <div class="text-amber-400 text-xl leading-none">↓</div>
-                    </div>
-
-                    <!-- Step 4 -->
-                    <div class="flex flex-col items-center mt-2 group cursor-pointer" onclick="showFlowDetail(4)">
-                        <div class="w-full max-w-lg bg-white p-5 rounded-lg border-l-4 border-emerald-500 shadow-sm hover:shadow-md transition-all arch-node">
-                            <div class="flex justify-between items-center">
-                                <h4 class="font-bold text-emerald-700">4. Role-Based Rendering</h4>
-                                <span class="text-xs bg-emerald-100 text-emerald-600 px-2 py-1 rounded">Conditional UI</span>
-                            </div>
-                            <p class="text-sm text-gray-500 mt-2">AppContent merender AdminDashboard atau MemberDashboard.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Explanation Box for Flow -->
-                <div id="flow-explanation" class="mt-12 bg-slate-800 text-white p-6 rounded-xl shadow-xl hidden transition-opacity duration-500">
-                    <div class="flex items-start gap-4">
-                        <div class="bg-indigo-500 p-2 rounded-lg text-2xl">💡</div>
-                        <div>
-                            <h4 id="flow-title" class="text-lg font-bold mb-2">Detail Langkah</h4>
-                            <p id="flow-content" class="text-slate-300 leading-relaxed"></p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Section 3: Simulasi Logika (Interactive Simulator) -->
-        <section id="simulasi" class="bg-white py-16 border-t border-gray-200">
-            <div class="max-w-6xl mx-auto px-4 sm:px-6">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    
-                    <!-- Controls Column -->
-                    <div class="lg:col-span-1">
-                        <h2 class="text-2xl font-bold text-gray-900 mb-4">3. Simulasi Logika</h2>
-                        <p class="text-gray-600 mb-6 text-sm">
-                            Uji mekanisme RBAC secara langsung. Panel kontrol ini mensimulasikan perubahan state di Firebase dan React seperti yang dijelaskan dalam analisis.
-                        </p>
-
-                        <div class="space-y-4">
-                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Status Autentikasi</label>
-                                <div class="flex gap-2">
-                                    <button onclick="simulateAuth(true)" id="btn-login" class="flex-1 bg-indigo-600 text-white py-2 px-4 rounded hover:bg-indigo-700 interactive-btn font-medium text-sm">Login</button>
-                                    <button onclick="simulateAuth(false)" id="btn-logout" class="flex-1 bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-50 interactive-btn font-medium text-sm">Logout</button>
-                                </div>
-                            </div>
-
-                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 opacity-50 pointer-events-none transition-opacity duration-300" id="role-controls">
-                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Simulasi Peran (Firestore)</label>
-                                <div class="flex flex-col gap-2">
-                                    <button onclick="setRole('admin')" class="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded hover:border-indigo-500 interactive-btn flex items-center gap-3 group focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                                        <span class="w-3 h-3 rounded-full bg-indigo-500 group-hover:scale-110 transition"></span>
-                                        <span class="font-medium text-gray-700">Set Role: Admin</span>
-                                    </button>
-                                    <button onclick="setRole('member')" class="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded hover:border-green-500 interactive-btn flex items-center gap-3 group focus:ring-2 focus:ring-green-500 focus:outline-none">
-                                        <span class="w-3 h-3 rounded-full bg-green-500 group-hover:scale-110 transition"></span>
-                                        <span class="font-medium text-gray-700">Set Role: Member</span>
-                                    </button>
-                                    <button onclick="setRole('guest')" class="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded hover:border-gray-500 interactive-btn flex items-center gap-3 group focus:ring-2 focus:ring-gray-500 focus:outline-none">
-                                        <span class="w-3 h-3 rounded-full bg-gray-400 group-hover:scale-110 transition"></span>
-                                        <span class="font-medium text-gray-700">Set Role: Guest/Unknown</span>
-                                    </button>
-                                </div>
-                                <p class="text-xs text-gray-400 mt-2 italic">Klik tombol di atas mensimulasikan update realtime dari Firestore.</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Virtual Screen Column -->
-                    <div class="lg:col-span-2">
-                        <div class="bg-slate-900 rounded-xl shadow-2xl overflow-hidden flex flex-col h-full min-h-[500px]">
-                            <!-- Mock Browser Bar -->
-                            <div class="bg-slate-800 px-4 py-2 flex items-center gap-2 border-b border-slate-700">
-                                <div class="flex gap-1.5">
-                                    <div class="w-3 h-3 rounded-full bg-red-500"></div>
-                                    <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
-                                    <div class="w-3 h-3 rounded-full bg-green-500"></div>
-                                </div>
-                                <div class="ml-4 bg-slate-900 text-slate-400 text-xs px-3 py-1 rounded flex-grow font-mono overflow-hidden whitespace-nowrap">
-                                    localhost:3000/rbac-app
-                                </div>
-                            </div>
-
-                            <!-- Viewport -->
-                            <div id="virtual-viewport" class="flex-grow p-6 flex flex-col relative bg-gray-100">
-                                
-                                <!-- State Indicator Overlay -->
-                                <div class="absolute top-4 right-4 bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow border border-gray-200 text-xs font-mono z-10">
-                                    <div>User: <span id="monitor-user" class="font-bold text-red-500">null</span></div>
-                                    <div>Role: <span id="monitor-role" class="font-bold text-gray-500">none</span></div>
-                                </div>
-
-                                <!-- Dynamic Content Area -->
-                                <div id="app-screen" class="flex-grow flex items-center justify-center">
-                                    <!-- Default: Login Screen -->
-                                    <div class="w-full max-w-sm bg-white p-6 rounded shadow-md text-center animate-fade-in">
-                                        <h3 class="text-xl font-bold text-gray-800 mb-4">Login</h3>
-                                        <div class="space-y-3">
-                                            <div class="h-8 bg-gray-200 rounded animate-pulse"></div>
-                                            <div class="h-8 bg-gray-200 rounded animate-pulse"></div>
-                                            <div class="h-10 bg-indigo-600 rounded mt-4"></div>
-                                        </div>
-                                        <p class="text-xs text-gray-500 mt-4">Silakan login melalui panel kontrol.</p>
-                                    </div>
-                                </div>
-
-                                <!-- Console Log Simulation -->
-                                <div class="mt-6 bg-slate-800 rounded p-3 font-mono text-xs text-green-400 h-32 overflow-y-auto border border-slate-700 shadow-inner" id="sim-console">
-                                    <div class="opacity-50">> System ready...</div>
-                                    <div class="opacity-50">> Waiting for auth state...</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Summary Section -->
-        <section class="bg-indigo-900 text-white py-12">
-            <div class="max-w-4xl mx-auto px-4 text-center">
-                <h2 class="text-2xl font-bold mb-4">Status & Kesimpulan</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-left max-w-2xl mx-auto">
-                    <div class="bg-indigo-800/50 p-4 rounded-lg border border-indigo-700">
-                        <h4 class="font-bold text-emerald-400 mb-2">✅ Siap Deploy</h4>
-                        <p class="text-sm text-indigo-100">Kode yang dianalisis berfungsi sebagai Proof of Concept yang solid dan siap digunakan sebagai dasar aplikasi produksi.</p>
-                    </div>
-                    <div class="bg-indigo-800/50 p-4 rounded-lg border border-indigo-700">
-                        <h4 class="font-bold text-blue-400 mb-2">🛡️ Keamanan</h4>
-                        <p class="text-sm text-indigo-100">Menggunakan praktik terbaik dengan memisahkan inisialisasi layanan dan menggunakan token kustom untuk validasi sesi.</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-    </main>
-
-    <footer class="bg-white border-t border-gray-200 py-6">
-        <div class="max-w-7xl mx-auto px-4 text-center text-sm text-gray-500">
-            &copy; 2025 Analisis RBAC. Dibuat berdasarkan laporan analisis teknis.
+        <!-- Notification Message Box -->
+        <div id="notification-box" class="fixed bottom-4 right-4 p-4 rounded-lg shadow-xl text-white hidden transition-all duration-300" style="min-width: 250px;">
+            <p id="notification-message"></p>
         </div>
-    </footer>
+    </div>
 
-    <script>
-        // --- DATA & STATE MANAGEMENT ---
-        const reportData = {
-            components: [
-                {
-                    title: "Global Initialization",
-                    desc: "Layanan Firebase (auth, db) diinisialisasi di window object. Ini mencegah re-inisialisasi yang tidak perlu saat React me-render ulang komponen.",
-                    color: "#64748b", // Slate
-                    key: "global"
-                },
-                {
-                    title: "Authentication",
-                    desc: "Menangani identitas pengguna. Menggunakan <code>signInWithCustomToken</code> untuk Canvas dan fallback ke <code>signInAnonymously</code>. Memastikan setiap sesi memiliki UID.",
-                    color: "#3b82f6", // Blue
-                    key: "auth"
-                },
-                {
-                    title: "Role Mapping",
-                    desc: "Inti dari RBAC. Mengambil data dari path <code>/user_roles/{userId}</code>. Menggunakan <code>onSnapshot</code> untuk update real-time, memungkinkan admin mengubah akses secara instan.",
-                    color: "#f59e0b", // Amber
-                    key: "role"
-                },
-                {
-                    title: "Rendering Logic",
-                    desc: "Logika kondisional di <code>AppContent</code>. Memeriksa state <code>role</code> ('admin', 'member') dan memutuskan komponen Dashboard mana yang ditampilkan ke pengguna.",
-                    color: "#10b981", // Emerald
-                    key: "render"
-                }
-            ],
-            flowDetails: {
-                1: "Langkah 1: Inisialisasi global memastikan objek Firebase siap sebelum React mounting. Variabel diekspor ke <code>window.FirebaseServices</code>.",
-                2: "Langkah 2: Auth Context memicu <code>onAuthStateChanged</code>. Jika pengguna belum login, sistem mencoba login anonim atau token kustom.",
-                3: "Langkah 3: Setelah pengguna terautentikasi (user object ada), sistem berlangganan (subscribe) ke dokumen Firestore yang berisi role pengguna tersebut.",
-                4: "Langkah 4: State 'role' diperbarui. React me-render ulang UI: AdminDashboard jika 'admin', MemberDashboard jika 'member'."
-            }
-        };
+    <!-- Firebase SDK Imports (Module) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, addDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CHART INITIALIZATION ---
-        document.addEventListener('DOMContentLoaded', () => {
-            const ctx = document.getElementById('componentsChart').getContext('2d');
-            
-            const config = {
-                type: 'doughnut',
-                data: {
-                    labels: reportData.components.map(c => c.title),
-                    datasets: [{
-                        data: [20, 30, 30, 20], // Weighting based on complexity/importance in report
-                        backgroundColor: reportData.components.map(c => c.color),
-                        borderWidth: 0,
-                        hoverOffset: 10
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '65%',
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                padding: 20,
-                                usePointStyle: true,
-                                font: { family: 'Inter', size: 11 }
-                            }
-                        },
-                        tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                            padding: 12,
-                            callbacks: {
-                                label: function(context) {
-                                    return ' ' + context.label;
-                                }
-                            }
-                        }
-                    },
-                    onClick: (e, elements) => {
-                        if (elements.length > 0) {
-                            const index = elements[0].index;
-                            updateDetailCard(index);
-                        }
-                    }
-                }
-            };
-
-            new Chart(ctx, config);
-        });
-
-        // --- INTERACTION HANDLERS ---
-
-        function updateDetailCard(index) {
-            const data = reportData.components[index];
-            const titleEl = document.getElementById('detail-title');
-            const descEl = document.getElementById('detail-desc');
-            const tagEl = document.getElementById('detail-tag');
-            const cardEl = document.getElementById('component-detail');
-
-            // Fade out
-            cardEl.style.opacity = '0.5';
-            
-            setTimeout(() => {
-                titleEl.textContent = data.title;
-                titleEl.style.color = data.color;
-                descEl.innerHTML = data.desc;
-                tagEl.textContent = "Detail Teknis";
-                
-                // Fade in
-                cardEl.style.opacity = '1';
-            }, 200);
-        }
-
-        function showFlowDetail(step) {
-            const box = document.getElementById('flow-explanation');
-            const content = document.getElementById('flow-content');
-            
-            box.classList.remove('hidden');
-            // Small delay to allow display:block to apply before opacity transition
-            setTimeout(() => {
-                box.classList.remove('opacity-0');
-                box.classList.add('opacity-100');
-            }, 10);
-            
-            content.innerHTML = reportData.flowDetails[step];
-        }
-
-        // --- SIMULATOR LOGIC ---
+        // Global Firebase instances and utility variables
+        let app, db, auth;
+        let unsubscribeRole = null;
+        let unsubscribeOrders = null;
+        let unsubscribeAttendance = null;
         
-        const simState = {
+        const appState = {
+            isAuthReady: false,
             isLoggedIn: false,
             userUid: null,
-            role: null
+            role: 'loading',
+            username: '',
+            orders: [],
+            attendance: []
         };
 
-        function logConsole(msg, type = 'info') {
-            const consoleEl = document.getElementById('sim-console');
-            const entry = document.createElement('div');
-            const time = new Date().toLocaleTimeString('id-ID', { hour12: false });
-            entry.textContent = `[${time}] ${msg}`;
-            
-            if (type === 'success') entry.classList.add('text-green-400');
-            if (type === 'warn') entry.classList.add('text-yellow-400');
-            if (type === 'error') entry.classList.add('text-red-400');
-            if (type === 'info') entry.classList.add('text-blue-300');
+        const getGlobalVar = (name, defaultValue) => {
+            return typeof window[name] !== 'undefined' ? window[name] : defaultValue;
+        };
 
-            consoleEl.appendChild(entry);
-            consoleEl.scrollTop = consoleEl.scrollHeight;
+        const APP_ID = getGlobalVar('__app_id', 'default-scc-app');
+        const FIREBASE_CONFIG = JSON.parse(getGlobalVar('__firebase_config', '{}'));
+        const INITIAL_AUTH_TOKEN = getGlobalVar('__initial_auth_token', '');
+        
+        // --- UTILITIES ---
+
+        window.showNotification = function (message, type = 'success') {
+            const box = document.getElementById('notification-box');
+            const msgEl = document.getElementById('notification-message');
+            
+            box.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-yellow-600');
+            
+            if (type === 'success') box.classList.add('bg-green-600');
+            else if (type === 'error') box.classList.add('bg-red-600');
+            else if (type === 'warning') box.classList.add('bg-yellow-600');
+
+            msgEl.textContent = message;
+            box.classList.add('animate-fade-in');
+            
+            setTimeout(() => {
+                box.classList.remove('animate-fade-in');
+                box.classList.add('opacity-0');
+            }, 3000);
+            setTimeout(() => {
+                 box.classList.remove('opacity-0');
+                 box.classList.add('hidden');
+            }, 3300);
         }
 
-        function updateMonitor() {
-            const userEl = document.getElementById('monitor-user');
-            const roleEl = document.getElementById('monitor-role');
+        window.showModal = function (title, message, onConfirm, confirmText = 'Lanjutkan', isDestructive = false) {
+            const modal = document.getElementById('confirmation-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            const confirmBtn = document.getElementById('modal-confirm-btn');
 
-            if (simState.isLoggedIn) {
-                userEl.textContent = simState.userUid;
-                userEl.classList.remove('text-red-500');
-                userEl.classList.add('text-green-500');
-                
-                roleEl.textContent = simState.role || 'loading...';
+            confirmBtn.textContent = confirmText;
+            confirmBtn.className = confirmBtn.className.replace(/bg-red-\d+|bg-indigo-\d+|hover:bg-red-\d+|hover:bg-indigo-\d+/g, '');
+
+            if (isDestructive) {
+                confirmBtn.classList.add('bg-red-600', 'hover:bg-red-700');
             } else {
-                userEl.textContent = 'null';
-                userEl.classList.remove('text-green-500');
-                userEl.classList.add('text-red-500');
-                
-                roleEl.textContent = 'none';
+                confirmBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+            }
+
+            confirmBtn.onclick = () => {
+                onConfirm();
+                window.closeModal();
+            };
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        window.closeModal = function () {
+            document.getElementById('confirmation-modal').classList.add('hidden');
+            document.getElementById('confirmation-modal').classList.remove('flex');
+        }
+
+        // --- FIREBASE INITIALIZATION & AUTH ---
+
+        function initializeFirebase() {
+            try {
+                app = initializeApp(FIREBASE_CONFIG);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                setLogLevel('Debug');
+                console.log('Firebase initialized.');
+            } catch (error) {
+                console.error(`Error initializing Firebase: ${error.message}`);
             }
         }
 
-        function renderVirtualScreen() {
-            const screen = document.getElementById('app-screen');
-            screen.innerHTML = ''; // Clear
+        function setupAuthListener() {
+            onAuthStateChanged(auth, async (user) => {
+                appState.isAuthReady = true;
+                if (user) {
+                    appState.isLoggedIn = true;
+                    appState.userUid = user.uid;
+                    // For employees, we'll use email as a placeholder name
+                    appState.username = user.email || `User-${user.uid.substring(0, 6)}`;
+                    console.log(`User authenticated. UID: ${user.uid}`);
+                    
+                    await handleUserRoleAndData(user.uid);
+                } else {
+                    appState.isLoggedIn = false;
+                    appState.userUid = null;
+                    appState.role = 'guest'; // Default role for unauthenticated users
+                    appState.username = '';
+                    
+                    // Attempt automatic sign-in for Canvas environment
+                    if (INITIAL_AUTH_TOKEN) {
+                        try {
+                            await signInWithCustomToken(auth, INITIAL_AUTH_TOKEN);
+                        } catch (error) {
+                            console.warn(`Custom token failed. Starting as Guest.`);
+                            // Fall through to renderLogin, user remains 'guest'
+                        }
+                    }
+                    
+                    // Unsubscribe previous listeners
+                    unsubscribeAll();
+                    renderView(); // Render login/guest order view
+                }
+            });
+        }
+        
+        async function handleUserRoleAndData(uid) {
+            // Subscribe to role changes
+            subscribeToRole(uid);
+            
+            // Subscribe to all employee-related data
+            if (appState.role === 'admin' || appState.role === 'member') {
+                subscribeToOrders();
+                subscribeToAttendance();
+            }
+        }
 
-            if (!simState.isLoggedIn) {
-                // Login Screen
-                screen.innerHTML = `
-                    <div class="w-full max-w-sm bg-white p-6 rounded shadow-md text-center animate-fade-in">
-                        <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full mx-auto flex items-center justify-center mb-4">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>
-                        </div>
-                        <h3 class="text-xl font-bold text-gray-800 mb-2">Aplikasi RBAC Login</h3>
-                        <p class="text-xs text-gray-500 mb-4">Silakan login melalui panel kontrol kiri.</p>
-                        <div class="h-2 w-full bg-gray-100 rounded overflow-hidden">
-                            <div class="h-full bg-gray-300 w-1/3"></div>
-                        </div>
+        function unsubscribeAll() {
+            if (unsubscribeRole) unsubscribeRole();
+            if (unsubscribeOrders) unsubscribeOrders();
+            if (unsubscribeAttendance) unsubscribeAttendance();
+            unsubscribeRole = null;
+            unsubscribeOrders = null;
+            unsubscribeAttendance = null;
+        }
+
+        // --- FIREBASE DATA LISTENERS (onSnapshot) ---
+
+        function getRoleDocRef(uid) {
+            // Public path for roles: artifacts/{appId}/public/data/user_roles/{UID}
+            return doc(db, `artifacts/${APP_ID}/public/data/user_roles/${uid}`);
+        }
+
+        function getOrdersCollectionRef() {
+            // Public path for orders: artifacts/{appId}/public/data/orders
+            return collection(db, `artifacts/${APP_ID}/public/data/orders`);
+        }
+        
+        function getAttendanceCollectionRef() {
+            // Public path for attendance: artifacts/{appId}/public/data/attendance
+            return collection(db, `artifacts/${APP_ID}/public/data/attendance`);
+        }
+
+        function subscribeToRole(uid) {
+            if (unsubscribeRole) unsubscribeRole();
+            
+            const roleRef = getRoleDocRef(uid);
+            appState.role = 'loading';
+            
+            unsubscribeRole = onSnapshot(roleRef, (docSnap) => {
+                const newRole = docSnap.exists() && docSnap.data().role ? docSnap.data().role : 'member'; // Default to member for logged-in user if no role set
+                
+                // If role changes, we might need to change subscriptions/view
+                if (appState.role !== newRole) {
+                    appState.role = newRole;
+                    console.log(`Role updated: ${newRole}`);
+                    // Re-evaluate what data to subscribe to and re-render
+                    subscribeToOrders(); // Members and Admins need this
+                    subscribeToAttendance(); // Members and Admins need this
+                    renderView();
+                } else {
+                    appState.role = newRole;
+                    renderView();
+                }
+            }, (error) => {
+                console.error(`Error fetching role: ${error.message}`);
+                appState.role = 'member'; // Fallback to member on error
+                renderView();
+            });
+        }
+        
+        function subscribeToOrders() {
+            if (unsubscribeOrders) unsubscribeOrders();
+            if (appState.role === 'guest') return; // Guest doesn't need to see all orders
+
+            const ordersQuery = query(getOrdersCollectionRef());
+
+            unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+                appState.orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                appState.orders.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); // Sort newest first
+                console.log(`Orders updated: ${appState.orders.length} orders loaded.`);
+                renderView();
+            }, (error) => {
+                console.error("Error fetching orders:", error);
+                window.showNotification('Gagal memuat daftar pesanan.', 'error');
+            });
+        }
+
+        function subscribeToAttendance() {
+            if (unsubscribeAttendance) unsubscribeAttendance();
+            if (appState.role === 'guest') return; // Guest doesn't need attendance info
+            
+            const attendanceQuery = query(getAttendanceCollectionRef());
+
+            unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
+                appState.attendance = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                appState.attendance.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); // Sort newest first
+                console.log(`Attendance updated: ${appState.attendance.length} records loaded.`);
+                renderView();
+            }, (error) => {
+                console.error("Error fetching attendance:", error);
+                window.showNotification('Gagal memuat data absen.', 'error');
+            });
+        }
+
+        // --- AUTH/LOGIN HANDLERS (Exposed Globally) ---
+
+        window.handleLogin = async function (email, password) {
+            if (!email || !password) {
+                window.showNotification('Email dan password tidak boleh kosong.', 'warning');
+                return;
+            }
+            try {
+                // Check if user exists (Optional: could also use signInWithEmailAndPassword directly)
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                window.showNotification(`Login berhasil! Selamat datang, ${userCredential.user.email}.`);
+            } catch (error) {
+                // Check for common errors
+                let message = 'Login gagal. Silakan coba lagi.';
+                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    message = 'Email atau password salah.';
+                } else if (error.code === 'auth/invalid-email') {
+                    message = 'Format email tidak valid.';
+                }
+                window.showNotification(message, 'error');
+                console.error('Login Error:', error);
+            }
+        };
+        
+        window.handleSignOut = async function() {
+            try {
+                await signOut(auth);
+                unsubscribeAll();
+                window.showNotification('Anda telah logout.', 'info');
+            } catch (error) {
+                window.showNotification('Gagal logout.', 'error');
+            }
+        };
+
+        // --- ORDER MANAGEMENT (Exposed Globally) ---
+        
+        const servicePriceMap = {
+            'cleaning': 50000,
+            'detailing': 150000,
+            'repaint': 250000
+        };
+
+        window.handleGuestOrder = async function (e) {
+            e.preventDefault();
+            const form = e.target;
+            const customerName = form.customerName.value.trim();
+            const customerPhone = form.customerPhone.value.trim();
+            const shoeModel = form.shoeModel.value.trim();
+            const serviceType = form.serviceType.value;
+            
+            if (!customerName || !customerPhone || !shoeModel || !serviceType) {
+                window.showNotification('Semua field wajib diisi.', 'warning');
+                return;
+            }
+
+            const newOrder = {
+                customerName,
+                customerPhone,
+                shoeModel,
+                serviceType,
+                price: servicePriceMap[serviceType] || 0,
+                status: 'pickup', // Default starting status
+                timestamp: serverTimestamp(),
+                guestId: appState.userUid || 'anon_guest'
+            };
+
+            try {
+                await addDoc(getOrdersCollectionRef(), newOrder);
+                window.showNotification('Pesanan Anda berhasil dibuat! Karyawan kami akan segera menjemput sepatu Anda.', 'success');
+                form.reset();
+            } catch (error) {
+                window.showNotification('Gagal memproses pesanan. Coba lagi.', 'error');
+                console.error('Order Submission Error:', error);
+            }
+        };
+        
+        window.updateOrderStatus = async function (orderId, currentStatus) {
+            const statusOrder = ['pickup', 'cleaning', 'detailing', 'delivery', 'dropoff'];
+            const currentIndex = statusOrder.indexOf(currentStatus);
+            
+            if (currentIndex === -1 || currentIndex === statusOrder.length - 1) {
+                window.showNotification('Tidak ada status selanjutnya atau sudah selesai (dropoff).', 'warning');
+                return;
+            }
+            
+            const nextStatus = statusOrder[currentIndex + 1];
+            
+            window.showModal(
+                'Update Status Pesanan',
+                `Yakin ingin mengubah status pesanan ${orderId.substring(0, 8)}... dari '${currentStatus.toUpperCase()}' menjadi '${nextStatus.toUpperCase()}'?`,
+                async () => {
+                    const orderRef = doc(getOrdersCollectionRef(), orderId);
+                    try {
+                        await updateDoc(orderRef, { status: nextStatus, updatedBy: appState.username });
+                        window.showNotification(`Status pesanan ${orderId.substring(0, 8)}... berhasil diubah menjadi ${nextStatus.toUpperCase()}`, 'success');
+                    } catch (error) {
+                        window.showNotification('Gagal mengupdate status.', 'error');
+                        console.error('Update Status Error:', error);
+                    }
+                },
+                `Ubah ke ${nextStatus.toUpperCase()}`
+            );
+        };
+        
+        // --- EMPLOYEE ATTENDANCE (Exposed Globally) ---
+
+        window.handleAttendance = async function (type) {
+            if (appState.role === 'guest') {
+                 window.showNotification('Hanya karyawan yang bisa absen.', 'warning');
+                 return;
+            }
+            
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            const existingAttendance = appState.attendance.find(a => 
+                a.userId === appState.userUid && 
+                a.date === today &&
+                a.type === type
+            );
+
+            if (existingAttendance) {
+                 window.showNotification(`Anda sudah ${type === 'in' ? 'absen masuk' : 'absen pulang'} hari ini.`, 'warning');
+                 return;
+            }
+            
+            const attendanceData = {
+                userId: appState.userUid,
+                userName: appState.username,
+                type: type, // 'in' or 'out'
+                date: today,
+                timestamp: serverTimestamp()
+            };
+
+            try {
+                await addDoc(getAttendanceCollectionRef(), attendanceData);
+                window.showNotification(`Absen ${type === 'in' ? 'Masuk' : 'Pulang'} berhasil!`, 'success');
+            } catch (error) {
+                window.showNotification('Gagal menyimpan absen.', 'error');
+                console.error('Attendance Error:', error);
+            }
+        };
+
+        // --- RENDERING VIEWS ---
+
+        const mainContent = document.getElementById('main-content');
+        const header = document.getElementById('app-header');
+
+        function renderView() {
+            document.getElementById('user-role-display').textContent = appState.role;
+            
+            if (appState.isAuthReady && !appState.isLoggedIn && appState.role !== 'guest') {
+                // Force login view if not logged in and not guest
+                renderLogin();
+                header.classList.add('hidden');
+                return;
+            }
+
+            header.classList.remove('hidden');
+            mainContent.innerHTML = '';
+            
+            if (appState.role === 'loading') {
+                mainContent.innerHTML = `
+                    <div class="flex flex-col items-center p-8">
+                        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+                        <p class="mt-4 text-gray-600">Memuat status dan peran...</p>
                     </div>
                 `;
-            } else if (simState.role === 'loading') {
-                // Loading Screen
-                screen.innerHTML = `
-                    <div class="flex flex-col items-center animate-fade-in">
-                        <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
-                        <p class="mt-4 text-sm text-indigo-600 font-medium">Memuat data peran...</p>
+            } else if (appState.role === 'guest') {
+                renderGuestOrderInput();
+                header.classList.add('hidden');
+            } else if (appState.role === 'admin' || appState.role === 'member') {
+                renderDashboard();
+            } else {
+                 // Fallback: unauthorized logged-in user
+                mainContent.innerHTML = `
+                    <div class="card p-8 text-center max-w-lg">
+                        <i class="fas fa-lock text-red-500 text-4xl mb-4"></i>
+                        <h2 class="text-2xl font-bold mb-2">Akses Ditolak</h2>
+                        <p class="text-gray-600">Peran Anda (${appState.role}) tidak diizinkan mengakses dashboard ini. Silakan hubungi admin.</p>
                     </div>
                 `;
-            } else if (simState.role === 'admin') {
-                // Admin Dashboard
-                screen.innerHTML = `
-                    <div class="w-full h-full p-4 overflow-y-auto animate-fade-in bg-indigo-50/50">
-                        <div class="bg-white p-6 rounded-lg shadow border-l-4 border-indigo-500">
-                            <h2 class="text-2xl font-bold text-indigo-700 mb-2">Dashboard Admin</h2>
-                            <p class="text-sm text-gray-600 mb-4">Akses penuh ke manajemen sistem.</p>
-                            <div class="grid grid-cols-2 gap-2 mt-4">
-                                <div class="bg-indigo-100 p-3 rounded text-center text-indigo-800 text-xs font-bold">User CRUD</div>
-                                <div class="bg-indigo-100 p-3 rounded text-center text-indigo-800 text-xs font-bold">Settings</div>
-                                <div class="bg-indigo-100 p-3 rounded text-center text-indigo-800 text-xs font-bold">Finance</div>
-                                <div class="bg-indigo-100 p-3 rounded text-center text-indigo-800 text-xs font-bold">Logs</div>
+            }
+        }
+        
+        function renderLogin() {
+             mainContent.innerHTML = `
+                <div class="card p-8 w-full max-w-md animate-fade-in">
+                    <div class="text-center mb-6">
+                        <i class="fas fa-shoe-prints text-indigo-600 text-3xl mb-2"></i>
+                        <h2 class="text-3xl font-extrabold text-gray-900">SCC Login</h2>
+                        <p class="text-sm text-gray-500 mt-2">Masuk sebagai Karyawan/Admin</p>
+                    </div>
+                    <form id="login-form">
+                        <div class="mb-4">
+                            <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+                            <input type="email" id="email" name="email" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="employee@scc.com" required>
+                        </div>
+                        <div class="mb-6">
+                            <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                            <input type="password" id="password" name="password" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="********" required>
+                        </div>
+                        <button type="submit" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg font-semibold btn-primary">
+                            <i class="fas fa-sign-in-alt mr-2"></i> Masuk
+                        </button>
+                    </form>
+                    <p class="text-center text-xs text-gray-400 mt-4">Atau <a href="#" onclick="window.handleSignOut(); window.renderView();" class="text-indigo-500 hover:underline">Input Order sebagai Tamu</a></p>
+                </div>
+            `;
+            document.getElementById('login-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = e.target.email.value;
+                const password = e.target.password.value;
+                window.handleLogin(email, password);
+            });
+        }
+        
+        function renderGuestOrderInput() {
+            mainContent.innerHTML = `
+                <div class="card p-8 w-full max-w-2xl animate-fade-in">
+                    <div class="text-center mb-6">
+                        <i class="fas fa-box-open text-green-600 text-3xl mb-2"></i>
+                        <h2 class="text-3xl font-extrabold text-gray-900">Input Pesanan Pelanggan (Guest)</h2>
+                        <p class="text-sm text-gray-500 mt-2">Masukkan detail sepatu dan layanan yang Anda butuhkan.</p>
+                    </div>
+                    <form id="guest-order-form" onsubmit="window.handleGuestOrder(event)">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Nama Pelanggan</label>
+                                <input name="customerName" type="text" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Nomor Telepon</label>
+                                <input name="customerPhone" type="tel" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Model Sepatu</label>
+                                <input name="shoeModel" type="text" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Jenis Layanan</label>
+                                <select name="serviceType" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" required>
+                                    <option value="">-- Pilih Layanan --</option>
+                                    <option value="cleaning">Deep Cleaning (Rp 50.000)</option>
+                                    <option value="detailing">Premium Detailing (Rp 150.000)</option>
+                                    <option value="repaint">Repaint & Restoration (Rp 250.000)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full mt-6 bg-green-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-green-700 btn-primary">
+                            <i class="fas fa-paper-plane mr-2"></i> Submit Pesanan
+                        </button>
+                    </form>
+                    <p class="text-center text-xs text-gray-400 mt-4">Kembali ke <a href="#" onclick="window.handleSignOut(); window.renderView();" class="text-indigo-500 hover:underline">Login Karyawan</a></p>
+                </div>
+            `;
+        }
+        
+        function renderDashboard() {
+            mainContent.classList.remove('justify-center', 'items-center');
+            mainContent.innerHTML = `
+                <div class="max-w-7xl mx-auto w-full py-8 px-4 sm:px-6 lg:px-8">
+                    <h2 class="text-3xl font-bold text-gray-900 mb-6">Dashboard Karyawan SCC</h2>
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="card p-5 bg-indigo-50 border-l-4 border-indigo-600">
+                            <p class="text-sm font-medium text-gray-500">Total Pesanan</p>
+                            <p class="text-3xl font-bold text-gray-900">${appState.orders.length}</p>
+                        </div>
+                        <div class="card p-5 bg-green-50 border-l-4 border-green-600">
+                            <p class="text-sm font-medium text-gray-500">Proses</p>
+                            <p class="text-3xl font-bold text-gray-900">${appState.orders.filter(o => o.status !== 'dropoff').length}</p>
+                        </div>
+                        <div class="card p-5 bg-yellow-50 border-l-4 border-yellow-600">
+                            <p class="text-sm font-medium text-gray-500">Kehadiran Hari Ini</p>
+                            <p class="text-3xl font-bold text-gray-900">${appState.attendance.filter(a => a.date === new Date().toISOString().split('T')[0] && a.type === 'in').length}</p>
+                        </div>
+                        <div class="card p-5 bg-white shadow-md">
+                            <p class="text-sm font-medium text-gray-500">Selamat datang</p>
+                            <p class="text-xl font-bold text-gray-900">${appState.username}</p>
+                            <p class="text-xs text-indigo-500 mt-1 uppercase">${appState.role}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Left Column: Quick Actions & Attendance -->
+                        <div class="lg:col-span-1 space-y-6">
+                            <!-- Attendance Feature -->
+                            <div class="card p-6">
+                                <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-clock text-gray-500"></i> Absensi Karyawan</h3>
+                                <div class="flex space-x-3 mb-4">
+                                    <button onclick="window.handleAttendance('in')" class="flex-1 bg-green-500 text-white py-2 rounded-lg font-medium btn-primary disabled:opacity-50" ${isAttendanceRecorded('in') ? 'disabled' : ''}>
+                                        <i class="fas fa-sign-in-alt mr-1"></i> Absen Masuk
+                                    </button>
+                                    <button onclick="window.handleAttendance('out')" class="flex-1 bg-red-500 text-white py-2 rounded-lg font-medium btn-primary disabled:opacity-50" ${isAttendanceRecorded('out') ? 'disabled' : ''}>
+                                        <i class="fas fa-sign-out-alt mr-1"></i> Absen Pulang
+                                    </button>
+                                </div>
+                                <div class="mt-4 border-t pt-4">
+                                    <h4 class="text-sm font-bold text-gray-700 mb-2">Riwayat Absen Anda Hari Ini:</h4>
+                                    ${renderUserAttendanceToday()}
+                                </div>
+                            </div>
+                            
+                            <!-- Scan Feature -->
+                            <div class="card p-6">
+                                <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-qrcode text-gray-500"></i> Scan Proses Sepatu</h3>
+                                <div id="scan-simulator" class="rounded-lg mb-4 flex items-center justify-center">
+                                    <div class="scan-line"></div>
+                                    <p class="text-white font-mono text-sm opacity-50 z-10">SIMULASI SCANNING...</p>
+                                </div>
+                                <p class="text-sm text-gray-500 mb-3">Masukkan ID Pesanan untuk melanjutkan proses.</p>
+                                <input type="text" id="scan-input" placeholder="Contoh: ID Order 1234..." class="w-full px-3 py-2 border border-gray-300 rounded-md mb-3">
+                                <button onclick="window.handleScan()" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium btn-primary">
+                                    <i class="fas fa-search"></i> Cari & Update
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Order List -->
+                        <div class="lg:col-span-2 space-y-6">
+                            <div class="card p-6">
+                                <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-list-ul text-gray-500"></i> Daftar Pesanan (<span class="text-indigo-600">${appState.orders.length}</span>)</h3>
+                                <div class="overflow-x-auto">
+                                    ${renderOrderTable()}
+                                </div>
                             </div>
                         </div>
                     </div>
-                `;
-            } else if (simState.role === 'member') {
-                // Member Dashboard
-                screen.innerHTML = `
-                    <div class="w-full h-full p-4 overflow-y-auto animate-fade-in bg-green-50/50">
-                        <div class="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
-                            <h2 class="text-2xl font-bold text-green-700 mb-2">Dashboard Member</h2>
-                            <p class="text-sm text-gray-600 mb-4">Akses fitur dasar anggota.</p>
-                            <div class="space-y-2 mt-4">
-                                <div class="flex items-center justify-between p-2 bg-green-50 rounded">
-                                    <span class="text-xs font-medium text-green-800">Profil Saya</span>
-                                    <span class="text-green-600">→</span>
-                                </div>
-                                <div class="flex items-center justify-between p-2 bg-green-50 rounded">
-                                    <span class="text-xs font-medium text-green-800">Feedback</span>
-                                    <span class="text-green-600">→</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                // Guest / Unknown
-                screen.innerHTML = `
-                    <div class="w-full max-w-sm bg-yellow-50 p-6 rounded shadow border border-yellow-200 text-center animate-fade-in">
-                        <h3 class="text-lg font-bold text-yellow-800 mb-2">Akses Terbatas</h3>
-                        <p class="text-sm text-yellow-700">Peran Anda (${simState.role}) tidak memiliki dashboard khusus.</p>
-                    </div>
-                `;
+                </div>
+            `;
+        }
+
+        // --- Dashboard Helper Functions ---
+        
+        function getStatusColor(status) {
+            switch(status) {
+                case 'pickup': return 'bg-red-100 text-red-700';
+                case 'cleaning': return 'bg-yellow-100 text-yellow-700';
+                case 'detailing': return 'bg-blue-100 text-blue-700';
+                case 'delivery': return 'bg-indigo-100 text-indigo-700';
+                case 'dropoff': return 'bg-green-100 text-green-700';
+                default: return 'bg-gray-100 text-gray-700';
             }
         }
 
-        function simulateAuth(login) {
-            if (login) {
-                if (simState.isLoggedIn) return; // Already logged in
+        function renderOrderTable() {
+            if (appState.orders.length === 0) {
+                return '<p class="text-center text-gray-500 py-4">Belum ada pesanan yang masuk.</p>';
+            }
+
+            let tableRows = appState.orders.map(order => `
+                <tr class="border-b hover:bg-gray-50">
+                    <td class="px-6 py-3 text-sm font-medium text-gray-900">${order.id.substring(0, 6)}...</td>
+                    <td class="px-6 py-3 text-sm">${order.customerName}</td>
+                    <td class="px-6 py-3 text-sm">${order.shoeModel}</td>
+                    <td class="px-6 py-3 text-sm font-semibold">${(order.price || 0).toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}</td>
+                    <td class="px-6 py-3">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(order.status)}">
+                            ${order.status.toUpperCase()}
+                        </span>
+                    </td>
+                    <td class="px-6 py-3 text-right whitespace-nowrap">
+                        <button onclick="window.updateOrderStatus('${order.id}', '${order.status}')" class="text-indigo-600 hover:text-indigo-900 font-medium text-xs disabled:opacity-50" ${order.status === 'dropoff' ? 'disabled' : ''}>
+                            Update Status <i class="fas fa-arrow-right ml-1"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            return `
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pelanggan</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sepatu</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Harga</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${tableRows}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function isAttendanceRecorded(type) {
+            const today = new Date().toISOString().split('T')[0];
+            return appState.attendance.some(a => a.userId === appState.userUid && a.date === today && a.type === type);
+        }
+
+        function renderUserAttendanceToday() {
+            const today = new Date().toISOString().split('T')[0];
+            const userAttendance = appState.attendance
+                .filter(a => a.userId === appState.userUid && a.date === today)
+                .sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+
+            if (userAttendance.length === 0) {
+                return '<p class="text-xs text-gray-500 italic">Belum ada absen hari ini.</p>';
+            }
+
+            return userAttendance.map(a => {
+                const time = new Date(a.timestamp.seconds * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                const icon = a.type === 'in' ? 'fas fa-arrow-right text-green-500' : 'fas fa-arrow-left text-red-500';
+                const label = a.type === 'in' ? 'Masuk' : 'Pulang';
                 
-                logConsole('Memulai proses login...', 'info');
-                // Simulate delay
-                document.getElementById('btn-login').innerHTML = '...';
+                return `
+                    <div class="flex justify-between items-center text-sm mb-1 px-2 py-1 bg-gray-50 rounded">
+                        <span class="font-medium">${label}</span>
+                        <span class="text-gray-600 flex items-center gap-2">
+                            <i class="${icon}"></i> ${time}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.handleScan = function() {
+            const input = document.getElementById('scan-input').value.trim();
+            if (!input) {
+                window.showNotification('Masukkan ID Pesanan terlebih dahulu.', 'warning');
+                return;
+            }
+
+            const foundOrder = appState.orders.find(o => o.id === input || o.id.substring(0, 6) === input.substring(0, 6));
+
+            if (foundOrder) {
+                const statusOrder = ['pickup', 'cleaning', 'detailing', 'delivery', 'dropoff'];
+                const currentIndex = statusOrder.indexOf(foundOrder.status);
                 
-                setTimeout(() => {
-                    simState.isLoggedIn = true;
-                    simState.userUid = 'user_' + Math.floor(Math.random() * 1000);
-                    simState.role = 'loading'; // Initial state after login as per report
-                    
-                    updateMonitor();
-                    renderVirtualScreen();
-                    logConsole(`User authenticated: ${simState.userUid}`, 'success');
-                    logConsole('Mendengarkan onSnapshot untuk peran...', 'warn');
-                    
-                    document.getElementById('btn-login').innerHTML = 'Login';
-                    document.getElementById('role-controls').classList.remove('opacity-50', 'pointer-events-none');
-                }, 800);
+                if (currentIndex === -1 || currentIndex === statusOrder.length - 1) {
+                    window.showNotification(`Pesanan ${foundOrder.id.substring(0, 6)}... sudah selesai (dropoff).`, 'info');
+                    return;
+                }
+                
+                // Use existing update function
+                window.updateOrderStatus(foundOrder.id, foundOrder.status);
+                
             } else {
-                logConsole('User logging out...', 'info');
-                simState.isLoggedIn = false;
-                simState.userUid = null;
-                simState.role = null;
-                
-                updateMonitor();
-                renderVirtualScreen();
-                logConsole('Sesi diakhiri.', 'info');
-                
-                document.getElementById('role-controls').classList.add('opacity-50', 'pointer-events-none');
+                window.showNotification(`Pesanan dengan ID '${input}' tidak ditemukan.`, 'error');
             }
         }
 
-        function setRole(roleName) {
-            if (!simState.isLoggedIn) return;
-            
-            logConsole(`Firestore Update terdeteksi: role = '${roleName}'`, 'info');
-            simState.role = roleName;
-            updateMonitor();
-            renderVirtualScreen();
-            
-            if (roleName === 'admin') logConsole('Merender AdminDashboard', 'success');
-            else if (roleName === 'member') logConsole('Merender MemberDashboard', 'success');
-            else logConsole('Peran tidak dikenal', 'warn');
-        }
+        // --- STARTUP LOGIC ---
 
-        // Initialize Simulator UI
-        renderVirtualScreen();
-
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeFirebase();
+            setupAuthListener();
+        });
     </script>
 </body>
 </html>
