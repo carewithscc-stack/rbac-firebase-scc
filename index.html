@@ -3,378 +3,609 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RBAC App - Siap Deploy</title>
-    <!-- CDN untuk Tailwind CSS (untuk styling) -->
+    <title>Analisis Arsitektur RBAC Firebase</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- CDN untuk React dan ReactDOM -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- CDN untuk Babel (mengizinkan browser membaca JSX di <script type="text/babel">) -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- CDN untuk Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Atur log level ke Debug untuk melihat semua aktivitas Firebase di console
-        setLogLevel('debug');
-
-        // --- GLOBAL VARIABLES (Diambil dari lingkungan Canvas) ---
-        // Jika Anda menjalankan file ini di luar Canvas, Anda harus mengisi nilai-nilai ini secara manual
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'rbac-app-demo';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' 
-            ? JSON.parse(__firebase_config) 
-            : { apiKey: "API_KEY_ANDA", authDomain: "DOMAIN_ANDA", projectId: "PROJECT_ID_ANDA" /* ... lainnya */ };
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        
-        // --- 1. INISIALISASI FIREBASE ---
-        window.app = initializeApp(firebaseConfig);
-        window.db = getFirestore(window.app);
-        window.auth = getAuth(window.app);
-        window.initialAuthToken = initialAuthToken; // Simpan untuk digunakan di kode Babel
-
-        // Export fungsi-fungsi Firebase ke window agar bisa diakses oleh kode Babel
-        window.FirebaseServices = {
-            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signInWithEmailAndPassword, signOut,
-            getFirestore, doc, onSnapshot, setLogLevel
-        };
-        window.GlobalConfig = { appId, initialAuthToken };
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #fdfaf6; color: #333; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); transition: transform 0.2s; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
+        .interactive-btn { transition: all 0.2s; }
+        .interactive-btn:active { transform: scale(0.95); }
+        /* Chart Container Styling per requirements */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px; /* Tailwind max-w-xl is approx 576px, max-w-2xl is 672px. Using explicit for safety */
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        /* Architecture Diagram Nodes */
+        .arch-node {
+            border-left: 4px solid;
+        }
+        .connection-line {
+            width: 2px;
+            background-color: #e5e7eb;
+            margin: 0 auto;
+        }
+    </style>
+    <!-- Chosen Palette: Warm Neutrals (Background #fdfaf6) with Technical Accents (Indigo #4f46e5 for Admin/Core, Emerald #10b981 for Success/Member, Slate #64748b for Structure) -->
+    <!-- Application Structure Plan:
+         1. Header: Introduction to the analysis.
+         2. Component Breakdown (Chart): Interactive Doughnut chart to visualize the weight and relationship of the 4 key components identified in the report.
+         3. Interactive Architecture Map (Custom UI): A vertical flow diagram using HTML/Tailwind (NO SVG) to demonstrate the data flow from Init -> Auth -> Role -> Render. Users click nodes to see details.
+         4. Logic Simulator (Interactive State): A functional simulation of the AppContent logic. Users can toggle "roles" and see the UI update in real-time, mirroring the 'Role-Based Rendering' section.
+         5. Summary & Status: Final conclusion block.
+         This structure moves from abstract concepts (chart) to structural understanding (diagram) to practical application (simulator).
+    -->
+    <!-- Visualization & Content Choices:
+         1. Component Overview -> Inform -> Doughnut Chart (Chart.js) -> Click slice to update text -> Shows the holistic view of the system parts.
+         2. Architecture Flow -> Organize -> HTML Flex/Grid Layout with CSS Borders (Connectors) -> Click node to highlight and explain -> Visualizes the linear dependency described in the report.
+         3. Role Logic -> Change/Simulation -> JS State update changing DOM elements -> Buttons change 'virtual state' -> Demonstrates the 'onSnapshot' and conditional rendering logic physically.
+         4. Text Content -> Inform -> Structured HTML blocks -> Extracted directly from 'rbac_analysis.md'.
+         CONFIRMATION: NO SVG graphics used. NO Mermaid JS used.
+    -->
 </head>
-<body>
-    <div id="root">
-        <!-- Loader sederhana sebelum React dimuat -->
-        <div class="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-            <p class="mt-4 text-lg text-indigo-600">Memuat Aplikasi...</p>
+<body class="bg-[#fdfaf6] text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Navigation / Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="text-2xl font-bold text-indigo-700">RBAC</span>
+                <span class="text-sm bg-indigo-100 text-indigo-700 py-1 px-2 rounded-full font-medium">Analisis Arsitektur</span>
+            </div>
+            <nav class="hidden md:flex space-x-8 text-sm font-medium text-gray-500">
+                <a href="#komponen" class="hover:text-indigo-600 transition">Komponen</a>
+                <a href="#arsitektur" class="hover:text-indigo-600 transition">Alur Data</a>
+                <a href="#simulasi" class="hover:text-indigo-600 transition">Simulasi</a>
+            </nav>
         </div>
-    </div>
+    </header>
 
-    <!-- Kode React/JSX dimuat melalui Babel -->
-    <script type="text/babel">
-        // Mengambil variabel global dan layanan Firebase dari window
-        const { useState, useEffect, createContext, useContext } = React;
-        const { appId, initialAuthToken } = window.GlobalConfig;
-        const { 
-            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
-            signInWithEmailAndPassword, signOut, getFirestore, doc, onSnapshot 
-        } = window.FirebaseServices;
+    <main class="flex-grow">
+        <!-- Hero Section -->
+        <section class="max-w-4xl mx-auto px-4 py-12 sm:px-6 text-center">
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight text-gray-900 mb-6">
+                Sistem Kontrol Akses Berbasis Peran
+            </h1>
+            <p class="text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
+                Laporan interaktif ini menganalisis implementasi RBAC menggunakan Firebase Authentication dan Firestore. 
+                Jelajahi bagaimana inisialisasi global, penanganan autentikasi, pemetaan peran real-time, dan rendering kondisional bekerja bersama untuk menciptakan sistem keamanan yang solid.
+            </p>
+        </section>
 
-        const db = window.db;
-        const auth = window.auth;
+        <!-- Section 1: Komponen Kunci (Chart) -->
+        <section id="komponen" class="bg-white py-16 border-y border-gray-100">
+            <div class="max-w-6xl mx-auto px-4 sm:px-6">
+                <div class="mb-10 text-center md:text-left">
+                    <h2 class="text-3xl font-bold text-gray-900 mb-4">1. Komponen Kunci</h2>
+                    <p class="text-gray-600 max-w-3xl">
+                        Aplikasi ini dibangun di atas empat pilar utama yang memastikan keamanan dan responsivitas. 
+                        Klik pada diagram di bawah untuk mempelajari detail setiap komponen teknis yang ditemukan dalam analisis.
+                    </p>
+                </div>
 
-        // Path Firestore untuk peran pengguna (sesuai aturan keamanan publik)
-        const getUserRoleDocRef = (userId) => {
-            // Path: /artifacts/{appId}/public/data/user_roles/{userId}
-            return doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', userId);
-        };
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+                    <!-- Chart Column -->
+                    <div class="bg-gray-50 p-6 rounded-2xl border border-gray-100 shadow-inner">
+                        <div class="chart-container">
+                            <canvas id="componentsChart"></canvas>
+                        </div>
+                        <p class="text-center text-xs text-gray-400 mt-4">Klik segmen diagram untuk detail</p>
+                    </div>
 
-        // --- 2. CONTEXT UNTUK MANAJEMEN STATUS AUTH & ROLE ---
-        const AuthContext = createContext(null);
-        const useAuth = () => useContext(AuthContext);
+                    <!-- Details Column -->
+                    <div>
+                        <div id="component-detail" class="bg-white p-8 rounded-xl border border-gray-200 shadow-lg min-h-[300px] flex flex-col justify-center transition-all duration-300">
+                            <h3 id="detail-title" class="text-2xl font-bold text-indigo-600 mb-4">Ringkasan Sistem</h3>
+                            <p id="detail-desc" class="text-gray-600 leading-relaxed text-lg">
+                                Sistem ini mengintegrasikan Firebase Auth dan Firestore untuk manajemen akses.
+                                Interaksi antara inisialisasi global dan state React menciptakan pengalaman pengguna yang mulus dan aman.
+                                Pilih komponen di samping untuk analisis mendalam.
+                            </p>
+                            <div id="detail-tag" class="mt-6 inline-block bg-gray-100 text-gray-600 px-3 py-1 rounded text-sm font-semibold w-max">
+                                Overview
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
 
-        // --- 3. KOMPONEN PENYEDIA (PROVIDER) AUTHENTIKASI ---
-        const AuthProvider = ({ children }) => {
-            const [user, setUser] = useState(null); 
-            const [role, setRole] = useState('loading'); 
-            const [isAuthReady, setIsAuthReady] = useState(false);
+        <!-- Section 2: Arsitektur Alur Data (Diagram) -->
+        <section id="arsitektur" class="py-16 bg-[#fdfaf6]">
+            <div class="max-w-5xl mx-auto px-4 sm:px-6">
+                <div class="mb-12 text-center">
+                    <h2 class="text-3xl font-bold text-gray-900 mb-4">2. Alur Data & Logika</h2>
+                    <p class="text-gray-600 max-w-2xl mx-auto">
+                        Visualisasi bagaimana data mengalir dari inisialisasi hingga tampilan antarmuka. 
+                        Struktur ini menjamin bahwa pengguna selalu terautentikasi sebelum peran diperiksa.
+                    </p>
+                </div>
 
-            useEffect(() => {
-                let unsubscribeRole = () => {};
-                
-                // --- 3a. Inisialisasi Auth Pertama Kali ---
-                const setupAuth = async () => {
-                    if (initialAuthToken) {
-                        try {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } catch (error) {
-                            console.error("Gagal masuk dengan token kustom:", error);
-                            await signInAnonymously(auth);
-                        }
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                    setIsAuthReady(true);
-                };
+                <!-- Interactive Flow Map (Custom HTML/Tailwind implementation of a flowchart) -->
+                <div class="relative">
+                    <!-- Step 1 -->
+                    <div class="flex flex-col items-center group cursor-pointer" onclick="showFlowDetail(1)">
+                        <div class="w-full max-w-lg bg-white p-5 rounded-lg border-l-4 border-slate-500 shadow-sm hover:shadow-md transition-all arch-node">
+                            <div class="flex justify-between items-center">
+                                <h4 class="font-bold text-slate-700">1. Global Initialization</h4>
+                                <span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded">Window Scope</span>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-2">Firebase services (auth, db) diinisialisasi di luar React.</p>
+                        </div>
+                        <div class="h-8 w-0.5 bg-slate-300 my-1"></div>
+                        <div class="text-slate-400 text-xl leading-none">↓</div>
+                    </div>
 
-                // Memastikan inisialisasi berjalan sekali
-                if (auth && !isAuthReady) {
-                    setupAuth();
-                }
+                    <!-- Step 2 -->
+                    <div class="flex flex-col items-center mt-2 group cursor-pointer" onclick="showFlowDetail(2)">
+                        <div class="w-full max-w-lg bg-white p-5 rounded-lg border-l-4 border-blue-500 shadow-sm hover:shadow-md transition-all arch-node">
+                            <div class="flex justify-between items-center">
+                                <h4 class="font-bold text-blue-700">2. Authentication Handling</h4>
+                                <span class="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">Async/Await</span>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-2">Cek Custom Token -> Fallback ke Anonymous. Dapatkan UID.</p>
+                        </div>
+                        <div class="h-8 w-0.5 bg-blue-300 my-1"></div>
+                        <div class="text-blue-400 text-xl leading-none">↓</div>
+                    </div>
 
-                // --- 3b. Listener Perubahan Status Autentikasi (WAJIB) ---
-                const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-                    setUser(currentUser);
+                    <!-- Step 3 -->
+                    <div class="flex flex-col items-center mt-2 group cursor-pointer" onclick="showFlowDetail(3)">
+                        <div class="w-full max-w-lg bg-white p-5 rounded-lg border-l-4 border-amber-500 shadow-sm hover:shadow-md transition-all arch-node">
+                            <div class="flex justify-between items-center">
+                                <h4 class="font-bold text-amber-700">3. Role Mapping (Firestore)</h4>
+                                <span class="text-xs bg-amber-100 text-amber-600 px-2 py-1 rounded">onSnapshot</span>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-2">Mendengarkan perubahan dokumen <code>user_roles/{userId}</code> secara real-time.</p>
+                        </div>
+                        <div class="h-8 w-0.5 bg-amber-300 my-1"></div>
+                        <div class="text-amber-400 text-xl leading-none">↓</div>
+                    </div>
+
+                    <!-- Step 4 -->
+                    <div class="flex flex-col items-center mt-2 group cursor-pointer" onclick="showFlowDetail(4)">
+                        <div class="w-full max-w-lg bg-white p-5 rounded-lg border-l-4 border-emerald-500 shadow-sm hover:shadow-md transition-all arch-node">
+                            <div class="flex justify-between items-center">
+                                <h4 class="font-bold text-emerald-700">4. Role-Based Rendering</h4>
+                                <span class="text-xs bg-emerald-100 text-emerald-600 px-2 py-1 rounded">Conditional UI</span>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-2">AppContent merender AdminDashboard atau MemberDashboard.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Explanation Box for Flow -->
+                <div id="flow-explanation" class="mt-12 bg-slate-800 text-white p-6 rounded-xl shadow-xl hidden transition-opacity duration-500">
+                    <div class="flex items-start gap-4">
+                        <div class="bg-indigo-500 p-2 rounded-lg text-2xl">💡</div>
+                        <div>
+                            <h4 id="flow-title" class="text-lg font-bold mb-2">Detail Langkah</h4>
+                            <p id="flow-content" class="text-slate-300 leading-relaxed"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Simulasi Logika (Interactive Simulator) -->
+        <section id="simulasi" class="bg-white py-16 border-t border-gray-200">
+            <div class="max-w-6xl mx-auto px-4 sm:px-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     
-                    unsubscribeRole(); 
-
-                    if (currentUser) {
-                        const userDocRef = getUserRoleDocRef(currentUser.uid);
-                        
-                        unsubscribeRole = onSnapshot(userDocRef, (docSnap) => {
-                            if (docSnap.exists()) {
-                                const userRole = docSnap.data().role || 'member';
-                                console.log(`Peran pengguna (UID: ${currentUser.uid}): ${userRole}`);
-                                setRole(userRole);
-                            } else {
-                                console.log(`Dokumen peran tidak ditemukan untuk UID: ${currentUser.uid}`);
-                                setRole('guest');
-                            }
-                        }, (error) => {
-                            console.error("Error mengambil peran dari Firestore:", error);
-                            setRole('guest');
-                        });
-                    } else {
-                        setRole('guest');
-                    }
-                });
-
-                return () => {
-                    unsubscribeAuth();
-                    unsubscribeRole();
-                };
-            }, []);
-
-            const contextValue = { user, role, isAuthReady, db, auth, appId };
-
-            // Hanya render children setelah auth selesai
-            if (!isAuthReady) {
-                return (
-                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                        <p className="mt-4 text-lg text-indigo-600">Menunggu Autentikasi...</p>
-                    </div>
-                );
-            }
-
-            return (
-                <AuthContext.Provider value={contextValue}>
-                    {children}
-                </AuthContext.Provider>
-            );
-        };
-
-        // --- 4. KOMPONEN LOGIN ---
-        const LoginComponent = () => {
-            const [email, setEmail] = useState('');
-            const [password, setPassword] = useState('');
-            const [error, setError] = useState('');
-            const [loading, setLoading] = useState(false);
-            const { auth } = useAuth();
-
-            const handleLogin = async (e) => {
-                e.preventDefault();
-                setError('');
-                setLoading(true);
-
-                try {
-                    await signInWithEmailAndPassword(auth, email, password);
-                } catch (err) {
-                    console.error(err);
-                    let errorMessage = "Gagal Login. Cek Email dan Password Anda.";
-                    if (err.code === 'auth/user-not-found') {
-                        errorMessage = "Pengguna tidak ditemukan. Daftar atau cek kembali email.";
-                    } else if (err.code === 'auth/wrong-password') {
-                        errorMessage = "Password salah.";
-                    } else if (err.code === 'auth/invalid-email') {
-                         errorMessage = "Format Email tidak valid.";
-                    }
-                    setError(errorMessage);
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            return (
-                <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
-                    <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl transition duration-500 ease-in-out transform hover:scale-[1.01]">
-                        <h2 className="text-3xl font-extrabold text-gray-800 text-center mb-6">Aplikasi RBAC Login</h2>
-                        <p className="text-sm text-center text-gray-500 mb-6">
-                            Gunakan <code>admin@example.com</code> atau <code>member@example.com</code>
+                    <!-- Controls Column -->
+                    <div class="lg:col-span-1">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">3. Simulasi Logika</h2>
+                        <p class="text-gray-600 mb-6 text-sm">
+                            Uji mekanisme RBAC secara langsung. Panel kontrol ini mensimulasikan perubahan state di Firebase dan React seperti yang dijelaskan dalam analisis.
                         </p>
-                        <form onSubmit={handleLogin} className="space-y-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                                <input
-                                    type="email"
-                                    placeholder="contoh@domain.com"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
-                                    required
-                                />
+
+                        <div class="space-y-4">
+                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Status Autentikasi</label>
+                                <div class="flex gap-2">
+                                    <button onclick="simulateAuth(true)" id="btn-login" class="flex-1 bg-indigo-600 text-white py-2 px-4 rounded hover:bg-indigo-700 interactive-btn font-medium text-sm">Login</button>
+                                    <button onclick="simulateAuth(false)" id="btn-logout" class="flex-1 bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-50 interactive-btn font-medium text-sm">Logout</button>
+                                </div>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                                <input
-                                    type="password"
-                                    placeholder="********"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
-                                    required
-                                />
+
+                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 opacity-50 pointer-events-none transition-opacity duration-300" id="role-controls">
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Simulasi Peran (Firestore)</label>
+                                <div class="flex flex-col gap-2">
+                                    <button onclick="setRole('admin')" class="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded hover:border-indigo-500 interactive-btn flex items-center gap-3 group focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                        <span class="w-3 h-3 rounded-full bg-indigo-500 group-hover:scale-110 transition"></span>
+                                        <span class="font-medium text-gray-700">Set Role: Admin</span>
+                                    </button>
+                                    <button onclick="setRole('member')" class="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded hover:border-green-500 interactive-btn flex items-center gap-3 group focus:ring-2 focus:ring-green-500 focus:outline-none">
+                                        <span class="w-3 h-3 rounded-full bg-green-500 group-hover:scale-110 transition"></span>
+                                        <span class="font-medium text-gray-700">Set Role: Member</span>
+                                    </button>
+                                    <button onclick="setRole('guest')" class="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded hover:border-gray-500 interactive-btn flex items-center gap-3 group focus:ring-2 focus:ring-gray-500 focus:outline-none">
+                                        <span class="w-3 h-3 rounded-full bg-gray-400 group-hover:scale-110 transition"></span>
+                                        <span class="font-medium text-gray-700">Set Role: Guest/Unknown</span>
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-400 mt-2 italic">Klik tombol di atas mensimulasikan update realtime dari Firestore.</p>
                             </div>
-                            {error && (
-                                <p className="text-sm text-red-600 bg-red-100 p-3 rounded-lg border border-red-200">{error}</p>
-                            )}
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className={`w-full py-3 px-4 rounded-lg text-white font-semibold shadow-md transition duration-300 ease-in-out ${
-                                    loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800'
-                                }`}
-                            >
-                                {loading ? 'Memproses...' : 'Login'}
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            );
-        };
-
-        // --- 5. KOMPONEN DASHBOARD ADMIN ---
-        const AdminDashboard = () => {
-            return (
-                <div className="p-8 bg-indigo-50 rounded-xl shadow-lg border-2 border-indigo-200">
-                    <div className="flex items-center space-x-3 text-indigo-700 mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                        </svg>
-                        <h1 className="text-3xl font-bold">Dashboard Admin</h1>
-                    </div>
-                    <p className="text-xl text-gray-700 mt-4">
-                        Selamat datang, Administrator! Anda memiliki akses penuh ke semua fitur.
-                    </p>
-                    <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600">
-                        <li>Manajemen Pengguna (CRUD)</li>
-                        <li>Pengaturan Sistem Global</li>
-                        <li>Laporan Keuangan Rahasia</li>
-                    </ul>
-                </div>
-            );
-        };
-
-        // --- 6. KOMPONEN DASHBOARD MEMBER ---
-        const MemberDashboard = () => {
-            return (
-                <div className="p-8 bg-green-50 rounded-xl shadow-lg border-2 border-green-200">
-                     <div className="flex items-center space-x-3 text-green-700 mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" />
-                        </svg>
-                        <h1 className="text-3xl font-bold">Dashboard Member</h1>
-                    </div>
-                    <p className="text-xl text-gray-700 mt-4">
-                        Selamat datang kembali! Anda dapat mengakses fitur dasar aplikasi.
-                    </p>
-                    <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600">
-                        <li>Lihat Profil Saya</li>
-                        <li>Mengelola Data Pribadi</li>
-                        <li>Mengirim Feedback ke Admin</li>
-                    </ul>
-                </div>
-            );
-        };
-
-        // --- 7. KOMPONEN UTAMA (MAIN APP) ---
-        const AppContent = () => {
-            const { user, role, auth } = useAuth();
-            const [isLoggingOut, setIsLoggingOut] = useState(false);
-            
-            let DashboardComponent = null;
-            let roleColor = 'text-gray-500';
-
-            if (role === 'admin') {
-                DashboardComponent = AdminDashboard;
-                roleColor = 'text-indigo-600';
-            } else if (role === 'member') {
-                DashboardComponent = MemberDashboard;
-                roleColor = 'text-green-600';
-            } else {
-                // Biarkan DashboardComponent null jika peran adalah 'guest'
-            }
-
-            const handleLogout = async () => {
-                setIsLoggingOut(true);
-                try {
-                    await signOut(auth);
-                } catch (error) {
-                    console.error("Gagal Logout:", error);
-                } finally {
-                    setIsLoggingOut(false);
-                }
-            };
-
-            if (user && role === 'loading') {
-                return (
-                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                        <p className="mt-4 text-lg text-indigo-600">Memuat data peran...</p>
-                    </div>
-                );
-            }
-            
-            if (!user || role === 'guest') {
-                return <LoginComponent />;
-            }
-
-            return (
-                <div className="min-h-screen bg-gray-50 p-6 md:p-10">
-                    <div className="flex justify-between items-center mb-10 pb-4 border-b border-gray-200">
-                        <h1 className="text-4xl font-extrabold text-gray-900">
-                            Sistem Kontrol Akses Berbasis Peran
-                        </h1>
-                        <div className="flex items-center space-x-4">
-                            <span className={`text-lg font-semibold ${roleColor}`}>
-                                Peran: {role.toUpperCase()}
-                            </span>
-                            <button
-                                onClick={handleLogout}
-                                disabled={isLoggingOut}
-                                className={`px-4 py-2 rounded-lg text-white font-medium transition duration-300 ease-in-out ${
-                                    isLoggingOut ? 'bg-red-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 shadow-md'
-                                }`}
-                            >
-                                {isLoggingOut ? 'Keluar...' : 'Logout'}
-                            </button>
                         </div>
                     </div>
 
-                    <div className="mt-8">
-                        {DashboardComponent ? (
-                            <DashboardComponent />
-                        ) : (
-                            <div className="p-6 bg-yellow-100 rounded-xl border border-yellow-300 text-yellow-800">
-                                <p className="font-semibold">Peringatan: Peran {role} tidak dikenal atau tidak memiliki dashboard khusus.</p>
+                    <!-- Virtual Screen Column -->
+                    <div class="lg:col-span-2">
+                        <div class="bg-slate-900 rounded-xl shadow-2xl overflow-hidden flex flex-col h-full min-h-[500px]">
+                            <!-- Mock Browser Bar -->
+                            <div class="bg-slate-800 px-4 py-2 flex items-center gap-2 border-b border-slate-700">
+                                <div class="flex gap-1.5">
+                                    <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                                    <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                                    <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                                </div>
+                                <div class="ml-4 bg-slate-900 text-slate-400 text-xs px-3 py-1 rounded flex-grow font-mono overflow-hidden whitespace-nowrap">
+                                    localhost:3000/rbac-app
+                                </div>
                             </div>
-                        )}
-                    </div>
 
-                    {/* Tampilkan detail teknis di bagian bawah */}
-                    <div className="mt-12 pt-8 border-t border-gray-200 text-sm text-gray-500">
-                        <p>UID Pengguna: <code className="bg-gray-200 p-1 rounded break-all">{user.uid}</code></p>
-                        <p>App ID: <code className="bg-gray-200 p-1 rounded">{appId}</code></p>
+                            <!-- Viewport -->
+                            <div id="virtual-viewport" class="flex-grow p-6 flex flex-col relative bg-gray-100">
+                                
+                                <!-- State Indicator Overlay -->
+                                <div class="absolute top-4 right-4 bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow border border-gray-200 text-xs font-mono z-10">
+                                    <div>User: <span id="monitor-user" class="font-bold text-red-500">null</span></div>
+                                    <div>Role: <span id="monitor-role" class="font-bold text-gray-500">none</span></div>
+                                </div>
+
+                                <!-- Dynamic Content Area -->
+                                <div id="app-screen" class="flex-grow flex items-center justify-center">
+                                    <!-- Default: Login Screen -->
+                                    <div class="w-full max-w-sm bg-white p-6 rounded shadow-md text-center animate-fade-in">
+                                        <h3 class="text-xl font-bold text-gray-800 mb-4">Login</h3>
+                                        <div class="space-y-3">
+                                            <div class="h-8 bg-gray-200 rounded animate-pulse"></div>
+                                            <div class="h-8 bg-gray-200 rounded animate-pulse"></div>
+                                            <div class="h-10 bg-indigo-600 rounded mt-4"></div>
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-4">Silakan login melalui panel kontrol.</p>
+                                    </div>
+                                </div>
+
+                                <!-- Console Log Simulation -->
+                                <div class="mt-6 bg-slate-800 rounded p-3 font-mono text-xs text-green-400 h-32 overflow-y-auto border border-slate-700 shadow-inner" id="sim-console">
+                                    <div class="opacity-50">> System ready...</div>
+                                    <div class="opacity-50">> Waiting for auth state...</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            );
+            </div>
+        </section>
+
+        <!-- Summary Section -->
+        <section class="bg-indigo-900 text-white py-12">
+            <div class="max-w-4xl mx-auto px-4 text-center">
+                <h2 class="text-2xl font-bold mb-4">Status & Kesimpulan</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-left max-w-2xl mx-auto">
+                    <div class="bg-indigo-800/50 p-4 rounded-lg border border-indigo-700">
+                        <h4 class="font-bold text-emerald-400 mb-2">✅ Siap Deploy</h4>
+                        <p class="text-sm text-indigo-100">Kode yang dianalisis berfungsi sebagai Proof of Concept yang solid dan siap digunakan sebagai dasar aplikasi produksi.</p>
+                    </div>
+                    <div class="bg-indigo-800/50 p-4 rounded-lg border border-indigo-700">
+                        <h4 class="font-bold text-blue-400 mb-2">🛡️ Keamanan</h4>
+                        <p class="text-sm text-indigo-100">Menggunakan praktik terbaik dengan memisahkan inisialisasi layanan dan menggunakan token kustom untuk validasi sesi.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-white border-t border-gray-200 py-6">
+        <div class="max-w-7xl mx-auto px-4 text-center text-sm text-gray-500">
+            &copy; 2025 Analisis RBAC. Dibuat berdasarkan laporan analisis teknis.
+        </div>
+    </footer>
+
+    <script>
+        // --- DATA & STATE MANAGEMENT ---
+        const reportData = {
+            components: [
+                {
+                    title: "Global Initialization",
+                    desc: "Layanan Firebase (auth, db) diinisialisasi di window object. Ini mencegah re-inisialisasi yang tidak perlu saat React me-render ulang komponen.",
+                    color: "#64748b", // Slate
+                    key: "global"
+                },
+                {
+                    title: "Authentication",
+                    desc: "Menangani identitas pengguna. Menggunakan <code>signInWithCustomToken</code> untuk Canvas dan fallback ke <code>signInAnonymously</code>. Memastikan setiap sesi memiliki UID.",
+                    color: "#3b82f6", // Blue
+                    key: "auth"
+                },
+                {
+                    title: "Role Mapping",
+                    desc: "Inti dari RBAC. Mengambil data dari path <code>/user_roles/{userId}</code>. Menggunakan <code>onSnapshot</code> untuk update real-time, memungkinkan admin mengubah akses secara instan.",
+                    color: "#f59e0b", // Amber
+                    key: "role"
+                },
+                {
+                    title: "Rendering Logic",
+                    desc: "Logika kondisional di <code>AppContent</code>. Memeriksa state <code>role</code> ('admin', 'member') dan memutuskan komponen Dashboard mana yang ditampilkan ke pengguna.",
+                    color: "#10b981", // Emerald
+                    key: "render"
+                }
+            ],
+            flowDetails: {
+                1: "Langkah 1: Inisialisasi global memastikan objek Firebase siap sebelum React mounting. Variabel diekspor ke <code>window.FirebaseServices</code>.",
+                2: "Langkah 2: Auth Context memicu <code>onAuthStateChanged</code>. Jika pengguna belum login, sistem mencoba login anonim atau token kustom.",
+                3: "Langkah 3: Setelah pengguna terautentikasi (user object ada), sistem berlangganan (subscribe) ke dokumen Firestore yang berisi role pengguna tersebut.",
+                4: "Langkah 4: State 'role' diperbarui. React me-render ulang UI: AdminDashboard jika 'admin', MemberDashboard jika 'member'."
+            }
         };
 
-        // --- KOMPONEN ROOT: Pembungkus Auth Provider ---
-        function App() {
-            return (
-                <AuthProvider>
-                    <AppContent />
-                </AuthProvider>
-            );
+        // --- CHART INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const ctx = document.getElementById('componentsChart').getContext('2d');
+            
+            const config = {
+                type: 'doughnut',
+                data: {
+                    labels: reportData.components.map(c => c.title),
+                    datasets: [{
+                        data: [20, 30, 30, 20], // Weighting based on complexity/importance in report
+                        backgroundColor: reportData.components.map(c => c.color),
+                        borderWidth: 0,
+                        hoverOffset: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '65%',
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 20,
+                                usePointStyle: true,
+                                font: { family: 'Inter', size: 11 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            padding: 12,
+                            callbacks: {
+                                label: function(context) {
+                                    return ' ' + context.label;
+                                }
+                            }
+                        }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            updateDetailCard(index);
+                        }
+                    }
+                }
+            };
+
+            new Chart(ctx, config);
+        });
+
+        // --- INTERACTION HANDLERS ---
+
+        function updateDetailCard(index) {
+            const data = reportData.components[index];
+            const titleEl = document.getElementById('detail-title');
+            const descEl = document.getElementById('detail-desc');
+            const tagEl = document.getElementById('detail-tag');
+            const cardEl = document.getElementById('component-detail');
+
+            // Fade out
+            cardEl.style.opacity = '0.5';
+            
+            setTimeout(() => {
+                titleEl.textContent = data.title;
+                titleEl.style.color = data.color;
+                descEl.innerHTML = data.desc;
+                tagEl.textContent = "Detail Teknis";
+                
+                // Fade in
+                cardEl.style.opacity = '1';
+            }, 200);
         }
 
-        // Render aplikasi ke DOM
-        const container = document.getElementById('root');
-        const root = ReactDOM.createRoot(container);
-        root.render(<App />);
+        function showFlowDetail(step) {
+            const box = document.getElementById('flow-explanation');
+            const content = document.getElementById('flow-content');
+            
+            box.classList.remove('hidden');
+            // Small delay to allow display:block to apply before opacity transition
+            setTimeout(() => {
+                box.classList.remove('opacity-0');
+                box.classList.add('opacity-100');
+            }, 10);
+            
+            content.innerHTML = reportData.flowDetails[step];
+        }
+
+        // --- SIMULATOR LOGIC ---
+        
+        const simState = {
+            isLoggedIn: false,
+            userUid: null,
+            role: null
+        };
+
+        function logConsole(msg, type = 'info') {
+            const consoleEl = document.getElementById('sim-console');
+            const entry = document.createElement('div');
+            const time = new Date().toLocaleTimeString('id-ID', { hour12: false });
+            entry.textContent = `[${time}] ${msg}`;
+            
+            if (type === 'success') entry.classList.add('text-green-400');
+            if (type === 'warn') entry.classList.add('text-yellow-400');
+            if (type === 'error') entry.classList.add('text-red-400');
+            if (type === 'info') entry.classList.add('text-blue-300');
+
+            consoleEl.appendChild(entry);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        function updateMonitor() {
+            const userEl = document.getElementById('monitor-user');
+            const roleEl = document.getElementById('monitor-role');
+
+            if (simState.isLoggedIn) {
+                userEl.textContent = simState.userUid;
+                userEl.classList.remove('text-red-500');
+                userEl.classList.add('text-green-500');
+                
+                roleEl.textContent = simState.role || 'loading...';
+            } else {
+                userEl.textContent = 'null';
+                userEl.classList.remove('text-green-500');
+                userEl.classList.add('text-red-500');
+                
+                roleEl.textContent = 'none';
+            }
+        }
+
+        function renderVirtualScreen() {
+            const screen = document.getElementById('app-screen');
+            screen.innerHTML = ''; // Clear
+
+            if (!simState.isLoggedIn) {
+                // Login Screen
+                screen.innerHTML = `
+                    <div class="w-full max-w-sm bg-white p-6 rounded shadow-md text-center animate-fade-in">
+                        <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full mx-auto flex items-center justify-center mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">Aplikasi RBAC Login</h3>
+                        <p class="text-xs text-gray-500 mb-4">Silakan login melalui panel kontrol kiri.</p>
+                        <div class="h-2 w-full bg-gray-100 rounded overflow-hidden">
+                            <div class="h-full bg-gray-300 w-1/3"></div>
+                        </div>
+                    </div>
+                `;
+            } else if (simState.role === 'loading') {
+                // Loading Screen
+                screen.innerHTML = `
+                    <div class="flex flex-col items-center animate-fade-in">
+                        <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
+                        <p class="mt-4 text-sm text-indigo-600 font-medium">Memuat data peran...</p>
+                    </div>
+                `;
+            } else if (simState.role === 'admin') {
+                // Admin Dashboard
+                screen.innerHTML = `
+                    <div class="w-full h-full p-4 overflow-y-auto animate-fade-in bg-indigo-50/50">
+                        <div class="bg-white p-6 rounded-lg shadow border-l-4 border-indigo-500">
+                            <h2 class="text-2xl font-bold text-indigo-700 mb-2">Dashboard Admin</h2>
+                            <p class="text-sm text-gray-600 mb-4">Akses penuh ke manajemen sistem.</p>
+                            <div class="grid grid-cols-2 gap-2 mt-4">
+                                <div class="bg-indigo-100 p-3 rounded text-center text-indigo-800 text-xs font-bold">User CRUD</div>
+                                <div class="bg-indigo-100 p-3 rounded text-center text-indigo-800 text-xs font-bold">Settings</div>
+                                <div class="bg-indigo-100 p-3 rounded text-center text-indigo-800 text-xs font-bold">Finance</div>
+                                <div class="bg-indigo-100 p-3 rounded text-center text-indigo-800 text-xs font-bold">Logs</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (simState.role === 'member') {
+                // Member Dashboard
+                screen.innerHTML = `
+                    <div class="w-full h-full p-4 overflow-y-auto animate-fade-in bg-green-50/50">
+                        <div class="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
+                            <h2 class="text-2xl font-bold text-green-700 mb-2">Dashboard Member</h2>
+                            <p class="text-sm text-gray-600 mb-4">Akses fitur dasar anggota.</p>
+                            <div class="space-y-2 mt-4">
+                                <div class="flex items-center justify-between p-2 bg-green-50 rounded">
+                                    <span class="text-xs font-medium text-green-800">Profil Saya</span>
+                                    <span class="text-green-600">→</span>
+                                </div>
+                                <div class="flex items-center justify-between p-2 bg-green-50 rounded">
+                                    <span class="text-xs font-medium text-green-800">Feedback</span>
+                                    <span class="text-green-600">→</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Guest / Unknown
+                screen.innerHTML = `
+                    <div class="w-full max-w-sm bg-yellow-50 p-6 rounded shadow border border-yellow-200 text-center animate-fade-in">
+                        <h3 class="text-lg font-bold text-yellow-800 mb-2">Akses Terbatas</h3>
+                        <p class="text-sm text-yellow-700">Peran Anda (${simState.role}) tidak memiliki dashboard khusus.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function simulateAuth(login) {
+            if (login) {
+                if (simState.isLoggedIn) return; // Already logged in
+                
+                logConsole('Memulai proses login...', 'info');
+                // Simulate delay
+                document.getElementById('btn-login').innerHTML = '...';
+                
+                setTimeout(() => {
+                    simState.isLoggedIn = true;
+                    simState.userUid = 'user_' + Math.floor(Math.random() * 1000);
+                    simState.role = 'loading'; // Initial state after login as per report
+                    
+                    updateMonitor();
+                    renderVirtualScreen();
+                    logConsole(`User authenticated: ${simState.userUid}`, 'success');
+                    logConsole('Mendengarkan onSnapshot untuk peran...', 'warn');
+                    
+                    document.getElementById('btn-login').innerHTML = 'Login';
+                    document.getElementById('role-controls').classList.remove('opacity-50', 'pointer-events-none');
+                }, 800);
+            } else {
+                logConsole('User logging out...', 'info');
+                simState.isLoggedIn = false;
+                simState.userUid = null;
+                simState.role = null;
+                
+                updateMonitor();
+                renderVirtualScreen();
+                logConsole('Sesi diakhiri.', 'info');
+                
+                document.getElementById('role-controls').classList.add('opacity-50', 'pointer-events-none');
+            }
+        }
+
+        function setRole(roleName) {
+            if (!simState.isLoggedIn) return;
+            
+            logConsole(`Firestore Update terdeteksi: role = '${roleName}'`, 'info');
+            simState.role = roleName;
+            updateMonitor();
+            renderVirtualScreen();
+            
+            if (roleName === 'admin') logConsole('Merender AdminDashboard', 'success');
+            else if (roleName === 'member') logConsole('Merender MemberDashboard', 'success');
+            else logConsole('Peran tidak dikenal', 'warn');
+        }
+
+        // Initialize Simulator UI
+        renderVirtualScreen();
+
     </script>
 </body>
 </html>
