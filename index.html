@@ -131,7 +131,14 @@
         };
 
         const APP_ID = getGlobalVar('__app_id', 'default-scc-app');
-        const FIREBASE_CONFIG = JSON.parse(getGlobalVar('__firebase_config', '{}'));
+        // Parse FIREBASE_CONFIG safely, defaulting to an empty object if parsing fails
+        let FIREBASE_CONFIG = {};
+        try {
+            FIREBASE_CONFIG = JSON.parse(getGlobalVar('__firebase_config', '{}'));
+        } catch (e) {
+            console.error("Failed to parse __firebase_config:", e);
+        }
+        
         const INITIAL_AUTH_TOKEN = getGlobalVar('__initial_auth_token', '');
         
         // Price Map for order calculation
@@ -142,13 +149,26 @@
         };
         
         // --- UTILITIES & UI FEEDBACK ---
+        
+        const mainContent = document.getElementById('main-content');
+        
+        function renderCriticalError(title, message, detail = "") {
+             mainContent.innerHTML = `
+                <div class="card p-8 text-center max-w-md bg-red-100 animate-fade-in">
+                    <i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>
+                    <h2 class="text-2xl font-bold mb-2 text-red-800">${title}</h2>
+                    <p class="text-gray-700 mb-4">${message}</p>
+                    ${detail ? `<p class="text-xs mt-2 text-red-600 font-mono bg-red-50 p-2 rounded">${detail}</p>` : ''}
+                </div>
+            `;
+        }
 
         /** Shows temporary notification messages */
         window.showNotification = function (message, type = 'success') {
             const box = document.getElementById('notification-box');
             const msgEl = document.getElementById('notification-message');
             
-            box.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-yellow-600', 'opacity-100');
+            box.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-yellow-600', 'opacity-100', 'bg-indigo-600');
             box.classList.add('opacity-0');
 
             if (type === 'success') box.classList.add('bg-green-600');
@@ -228,23 +248,31 @@
         // --- FIREBASE INITIALIZATION & AUTH ---
 
         function initializeFirebase() {
+            // CRITICAL CHECK: Ensure Firebase config is valid
+            if (!FIREBASE_CONFIG || !FIREBASE_CONFIG.projectId) {
+                renderCriticalError(
+                    "Error Konfigurasi Firebase",
+                    "Aplikasi gagal terhubung karena 'projectId' tidak disediakan. Pastikan konfigurasi Firebase dimuat dengan benar.",
+                    `Detail Error: "projectId" not provided in firebase.initializeApp.`
+                );
+                return false; // Stop initialization
+            }
+
             try {
                 app = initializeApp(FIREBASE_CONFIG);
                 db = getFirestore(app);
                 auth = getAuth(app);
                 setLogLevel('Debug'); // Enable Firebase logging in console
-                console.log('Firebase initialized.');
+                console.log('Firebase initialized successfully.');
+                return true;
             } catch (error) {
                 console.error(`Error initializing Firebase: ${error.message}`);
-                // Critical failure, show persistent error message
-                document.getElementById('main-content').innerHTML = `
-                    <div class="card p-8 text-center max-w-md bg-red-100">
-                        <i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>
-                        <h2 class="text-2xl font-bold mb-2">Error Inisialisasi Firebase</h2>
-                        <p class="text-gray-700">Aplikasi gagal terhubung ke backend. Cek konfigurasi atau jaringan Anda.</p>
-                        <p class="text-xs mt-2 text-red-600">${error.message}</p>
-                    </div>
-                `;
+                renderCriticalError(
+                    "Error Inisialisasi Firebase",
+                    "Aplikasi gagal terhubung ke backend. Cek konfigurasi atau jaringan Anda.",
+                    error.message
+                );
+                return false;
             }
         }
 
@@ -533,7 +561,6 @@
 
         // --- RENDERING VIEWS ---
 
-        const mainContent = document.getElementById('main-content');
         const header = document.getElementById('app-header');
 
         function renderView() {
@@ -544,7 +571,9 @@
             }
             
             // Update header elements if they exist
-            document.getElementById('user-role-display').textContent = appState.role.toUpperCase();
+            if (document.getElementById('user-role-display')) {
+                document.getElementById('user-role-display').textContent = appState.role.toUpperCase();
+            }
             
             header.classList.add('hidden');
             mainContent.classList.remove('justify-start', 'items-start'); 
@@ -883,8 +912,10 @@
         // --- STARTUP LOGIC ---
 
         document.addEventListener('DOMContentLoaded', () => {
-            initializeFirebase();
-            setupAuthListener();
+            if (initializeFirebase()) {
+                setupAuthListener();
+            }
+            // If initializeFirebase() returns false, the critical error screen is already rendered.
         });
     </script>
 </body>
