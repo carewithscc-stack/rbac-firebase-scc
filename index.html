@@ -12,9 +12,10 @@
         body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
         .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
         .btn-primary { transition: all 0.15s; }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3); }
-        .btn-primary:active { transform: translateY(0); }
-        /* Custom modal styles */
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3); }
+        .btn-primary:active:not(:disabled) { transform: translateY(0); }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
         .modal {
             background-color: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(5px);
@@ -23,7 +24,6 @@
         .animate-fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        /* Specific styles for scan page simulation */
         #scan-simulator {
             height: 150px;
             background: #111;
@@ -46,13 +46,26 @@
             50% { transform: translateY(1000%); }
             100% { transform: translateY(0%); }
         }
+        .status-badge {
+            padding: 0.25rem 0.6rem;
+            font-size: 0.75rem;
+            line-height: 1;
+            font-weight: 600;
+            border-radius: 9999px;
+            display: inline-flex;
+            text-transform: uppercase;
+        }
+        .table-responsive {
+            max-height: 400px; /* Batasi tinggi tabel untuk scroll yang cepat */
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
 
     <!-- Main Application Container -->
     <div id="app" class="min-h-screen flex flex-col">
-        <!-- Header (Visible on Dashboard, Member, Guest) -->
+        <!-- Header (Visible on Dashboard, Member) -->
         <header id="app-header" class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40 hidden">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
                 <h1 class="text-2xl font-black text-gray-900 flex items-center gap-2">
@@ -85,7 +98,7 @@
         </div>
 
         <!-- Notification Message Box -->
-        <div id="notification-box" class="fixed bottom-4 right-4 p-4 rounded-lg shadow-xl text-white hidden transition-all duration-300" style="min-width: 250px;">
+        <div id="notification-box" class="fixed bottom-4 right-4 p-4 rounded-lg shadow-xl text-white hidden transition-all duration-300 opacity-0" style="min-width: 250px;">
             <p id="notification-message"></p>
         </div>
     </div>
@@ -93,26 +106,26 @@
     <!-- Firebase SDK Imports (Module) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, addDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, collection, query, addDoc, updateDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global Firebase instances and utility variables
+        // --- GLOBAL SETUP ---
         let app, db, auth;
-        let unsubscribeRole = null;
-        let unsubscribeOrders = null;
-        let unsubscribeAttendance = null;
+        let unsubscribeRole, unsubscribeOrders, unsubscribeAttendance;
         
+        // State management
         const appState = {
             isAuthReady: false,
             isLoggedIn: false,
             userUid: null,
-            role: 'loading',
+            role: 'loading', // initial role state
             username: '',
             orders: [],
-            attendance: []
+            attendance: [],
+            isLoading: false // Global loading state for UI actions
         };
 
+        // Utility to safely retrieve global variables from the Canvas environment
         const getGlobalVar = (name, defaultValue) => {
             return typeof window[name] !== 'undefined' ? window[name] : defaultValue;
         };
@@ -121,31 +134,49 @@
         const FIREBASE_CONFIG = JSON.parse(getGlobalVar('__firebase_config', '{}'));
         const INITIAL_AUTH_TOKEN = getGlobalVar('__initial_auth_token', '');
         
-        // --- UTILITIES ---
+        // Price Map for order calculation
+        const servicePriceMap = {
+            'cleaning': 50000,
+            'detailing': 150000,
+            'repaint': 250000
+        };
+        
+        // --- UTILITIES & UI FEEDBACK ---
 
+        /** Shows temporary notification messages */
         window.showNotification = function (message, type = 'success') {
             const box = document.getElementById('notification-box');
             const msgEl = document.getElementById('notification-message');
             
-            box.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-yellow-600');
-            
+            box.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-yellow-600', 'opacity-100');
+            box.classList.add('opacity-0');
+
             if (type === 'success') box.classList.add('bg-green-600');
             else if (type === 'error') box.classList.add('bg-red-600');
             else if (type === 'warning') box.classList.add('bg-yellow-600');
+            else if (type === 'info') box.classList.add('bg-indigo-600');
 
             msgEl.textContent = message;
-            box.classList.add('animate-fade-in');
             
+            // Show
             setTimeout(() => {
-                box.classList.remove('animate-fade-in');
+                box.classList.remove('opacity-0');
+                box.classList.add('opacity-100');
+            }, 10);
+            
+            // Hide after 3 seconds
+            setTimeout(() => {
+                box.classList.remove('opacity-100');
                 box.classList.add('opacity-0');
             }, 3000);
+            
+            // Fully hide the element after transition
             setTimeout(() => {
-                 box.classList.remove('opacity-0');
                  box.classList.add('hidden');
             }, 3300);
         }
 
+        /** Shows a custom confirmation modal (replacing alert/confirm) */
         window.showModal = function (title, message, onConfirm, confirmText = 'Lanjutkan', isDestructive = false) {
             const modal = document.getElementById('confirmation-modal');
             document.getElementById('modal-title').textContent = title;
@@ -153,8 +184,10 @@
             const confirmBtn = document.getElementById('modal-confirm-btn');
 
             confirmBtn.textContent = confirmText;
+            // Reset background colors
             confirmBtn.className = confirmBtn.className.replace(/bg-red-\d+|bg-indigo-\d+|hover:bg-red-\d+|hover:bg-indigo-\d+/g, '');
 
+            // Apply appropriate color
             if (isDestructive) {
                 confirmBtn.classList.add('bg-red-600', 'hover:bg-red-700');
             } else {
@@ -167,14 +200,31 @@
             };
 
             modal.classList.remove('hidden');
-            modal.classList.add('flex');
+            modal.classList.add('flex', 'animate-fade-in');
         }
 
         window.closeModal = function () {
-            document.getElementById('confirmation-modal').classList.add('hidden');
-            document.getElementById('confirmation-modal').classList.remove('flex');
+            const modal = document.getElementById('confirmation-modal');
+            modal.classList.remove('flex', 'animate-fade-in');
+            modal.classList.add('hidden');
         }
 
+        /** Toggles the global loading state and disables action buttons */
+        function toggleLoading(isLoading) {
+            appState.isLoading = isLoading;
+            const buttons = document.querySelectorAll('.btn-action');
+            buttons.forEach(btn => {
+                btn.disabled = isLoading;
+                const spinner = btn.querySelector('.fa-spinner');
+                if (spinner) {
+                    if (isLoading) spinner.classList.remove('hidden');
+                    else spinner.classList.add('hidden');
+                }
+            });
+            // Re-render only necessary elements if possible, or trigger a full view refresh if necessary
+            // For now, we rely on Firebase onSnapshot to re-render, but for loading state, we call renderView() if needed.
+        }
+        
         // --- FIREBASE INITIALIZATION & AUTH ---
 
         function initializeFirebase() {
@@ -182,159 +232,163 @@
                 app = initializeApp(FIREBASE_CONFIG);
                 db = getFirestore(app);
                 auth = getAuth(app);
-                setLogLevel('Debug');
+                setLogLevel('Debug'); // Enable Firebase logging in console
                 console.log('Firebase initialized.');
             } catch (error) {
                 console.error(`Error initializing Firebase: ${error.message}`);
+                // Critical failure, show persistent error message
+                document.getElementById('main-content').innerHTML = `
+                    <div class="card p-8 text-center max-w-md bg-red-100">
+                        <i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>
+                        <h2 class="text-2xl font-bold mb-2">Error Inisialisasi Firebase</h2>
+                        <p class="text-gray-700">Aplikasi gagal terhubung ke backend. Cek konfigurasi atau jaringan Anda.</p>
+                        <p class="text-xs mt-2 text-red-600">${error.message}</p>
+                    </div>
+                `;
             }
         }
 
+        /** Sets up the primary authentication listener to manage user state */
         function setupAuthListener() {
             onAuthStateChanged(auth, async (user) => {
                 appState.isAuthReady = true;
                 if (user) {
                     appState.isLoggedIn = true;
                     appState.userUid = user.uid;
-                    // For employees, we'll use email as a placeholder name
                     appState.username = user.email || `User-${user.uid.substring(0, 6)}`;
-                    console.log(`User authenticated. UID: ${user.uid}`);
                     
-                    await handleUserRoleAndData(user.uid);
+                    // Subscribe to role and data immediately upon successful login/auth
+                    subscribeToRole(user.uid);
+                    subscribeToOrders();
+                    subscribeToAttendance();
                 } else {
                     appState.isLoggedIn = false;
                     appState.userUid = null;
                     appState.role = 'guest'; // Default role for unauthenticated users
                     appState.username = '';
                     
-                    // Attempt automatic sign-in for Canvas environment
-                    if (INITIAL_AUTH_TOKEN) {
-                        try {
-                            await signInWithCustomToken(auth, INITIAL_AUTH_TOKEN);
-                        } catch (error) {
-                            console.warn(`Custom token failed. Starting as Guest.`);
-                            // Fall through to renderLogin, user remains 'guest'
-                        }
-                    }
-                    
-                    // Unsubscribe previous listeners
+                    // Unsubscribe previous listeners and render guest view
                     unsubscribeAll();
-                    renderView(); // Render login/guest order view
+                    renderView(); 
                 }
             });
-        }
-        
-        async function handleUserRoleAndData(uid) {
-            // Subscribe to role changes
-            subscribeToRole(uid);
             
-            // Subscribe to all employee-related data
-            if (appState.role === 'admin' || appState.role === 'member') {
-                subscribeToOrders();
-                subscribeToAttendance();
+            // Attempt automatic sign-in for Canvas environment
+            if (!auth.currentUser && INITIAL_AUTH_TOKEN) {
+                signInWithCustomToken(auth, INITIAL_AUTH_TOKEN).catch(error => {
+                    console.warn(`Custom token failed. Starting as Guest.`);
+                    signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
+                });
+            } else if (!auth.currentUser) {
+                 signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
             }
         }
 
+        /** Stops all Firestore real-time listeners */
         function unsubscribeAll() {
-            if (unsubscribeRole) unsubscribeRole();
-            if (unsubscribeOrders) unsubscribeOrders();
-            if (unsubscribeAttendance) unsubscribeAttendance();
-            unsubscribeRole = null;
-            unsubscribeOrders = null;
-            unsubscribeAttendance = null;
+            if (unsubscribeRole) { unsubscribeRole(); unsubscribeRole = null; }
+            if (unsubscribeOrders) { unsubscribeOrders(); unsubscribeOrders = null; }
+            if (unsubscribeAttendance) { unsubscribeAttendance(); unsubscribeAttendance = null; }
+        }
+
+        // --- FIRESTORE REFERENCE PATHS ---
+
+        function getRoleDocRef(uid) {
+            // Path: /artifacts/{appId}/public/data/user_roles/{userId}
+            return doc(db, `artifacts/${APP_ID}/public/data/user_roles/${uid}`);
+        }
+        function getOrdersCollectionRef() {
+            // Path: /artifacts/{appId}/public/data/orders
+            return collection(db, `artifacts/${APP_ID}/public/data/orders`);
+        }
+        function getAttendanceCollectionRef() {
+            // Path: /artifacts/{appId}/public/data/attendance
+            return collection(db, `artifacts/${APP_ID}/public/data/attendance`);
         }
 
         // --- FIREBASE DATA LISTENERS (onSnapshot) ---
 
-        function getRoleDocRef(uid) {
-            // Public path for roles: artifacts/{appId}/public/data/user_roles/{UID}
-            return doc(db, `artifacts/${APP_ID}/public/data/user_roles/${uid}`);
-        }
-
-        function getOrdersCollectionRef() {
-            // Public path for orders: artifacts/{appId}/public/data/orders
-            return collection(db, `artifacts/${APP_ID}/public/data/orders`);
-        }
-        
-        function getAttendanceCollectionRef() {
-            // Public path for attendance: artifacts/{appId}/public/data/attendance
-            return collection(db, `artifacts/${APP_ID}/public/data/attendance`);
-        }
-
+        /** Subscribes to the user's role document */
         function subscribeToRole(uid) {
             if (unsubscribeRole) unsubscribeRole();
-            
+            // Guard clause to prevent unnecessary connections
+            if (!appState.isAuthReady || !db || appState.role === 'guest') return;
+
             const roleRef = getRoleDocRef(uid);
-            appState.role = 'loading';
             
             unsubscribeRole = onSnapshot(roleRef, (docSnap) => {
-                const newRole = docSnap.exists() && docSnap.data().role ? docSnap.data().role : 'member'; // Default to member for logged-in user if no role set
+                // If role doc exists, use its role. Otherwise, default to 'member' for logged-in users.
+                const newRole = docSnap.exists() && docSnap.data().role ? docSnap.data().role : 'member'; 
                 
-                // If role changes, we might need to change subscriptions/view
-                if (appState.role !== newRole) {
-                    appState.role = newRole;
-                    console.log(`Role updated: ${newRole}`);
-                    // Re-evaluate what data to subscribe to and re-render
-                    subscribeToOrders(); // Members and Admins need this
-                    subscribeToAttendance(); // Members and Admins need this
-                    renderView();
-                } else {
-                    appState.role = newRole;
-                    renderView();
-                }
+                appState.role = newRole;
+                console.log(`Role updated: ${newRole}`);
+                renderView();
             }, (error) => {
-                console.error(`Error fetching role: ${error.message}`);
-                appState.role = 'member'; // Fallback to member on error
+                // Explicit error handling: Security Rules or Network failure
+                console.error(`Error fetching role (Security Rules issue?): ${error.message}`);
+                // Set role to 'unauthorized' if we are logged in but cannot read data
+                appState.role = appState.isLoggedIn ? 'unauthorized' : 'guest'; 
+                window.showNotification('Gagal memuat peran Anda. Akses mungkin terbatas.', 'error');
                 renderView();
             });
         }
         
+        /** Subscribes to the public orders collection */
         function subscribeToOrders() {
             if (unsubscribeOrders) unsubscribeOrders();
-            if (appState.role === 'guest') return; // Guest doesn't need to see all orders
+            // Guard clause
+            if (!appState.isAuthReady || appState.role === 'guest' || !db) return;
 
             const ordersQuery = query(getOrdersCollectionRef());
 
             unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
                 appState.orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                appState.orders.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); // Sort newest first
-                console.log(`Orders updated: ${appState.orders.length} orders loaded.`);
+                // Sort by timestamp descending (newest first)
+                appState.orders.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); 
                 renderView();
             }, (error) => {
                 console.error("Error fetching orders:", error);
-                window.showNotification('Gagal memuat daftar pesanan.', 'error');
+                window.showNotification('Gagal memuat daftar pesanan. (Cek Security Rules)', 'error');
             });
         }
 
+        /** Subscribes to the public attendance collection */
         function subscribeToAttendance() {
             if (unsubscribeAttendance) unsubscribeAttendance();
-            if (appState.role === 'guest') return; // Guest doesn't need attendance info
+            // Guard clause
+            if (!appState.isAuthReady || appState.role === 'guest' || !db) return;
             
             const attendanceQuery = query(getAttendanceCollectionRef());
 
             unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
                 appState.attendance = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                appState.attendance.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); // Sort newest first
-                console.log(`Attendance updated: ${appState.attendance.length} records loaded.`);
+                // Sort by timestamp descending (newest first)
+                appState.attendance.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 renderView();
             }, (error) => {
                 console.error("Error fetching attendance:", error);
-                window.showNotification('Gagal memuat data absen.', 'error');
+                window.showNotification('Gagal memuat data absen. (Cek Security Rules)', 'error');
             });
         }
 
         // --- AUTH/LOGIN HANDLERS (Exposed Globally) ---
 
-        window.handleLogin = async function (email, password) {
+        window.handleLogin = async function (e) {
+            e.preventDefault();
+            toggleLoading(true);
+            const email = e.target.email.value;
+            const password = e.target.password.value;
+
             if (!email || !password) {
                 window.showNotification('Email dan password tidak boleh kosong.', 'warning');
+                toggleLoading(false);
                 return;
             }
             try {
-                // Check if user exists (Optional: could also use signInWithEmailAndPassword directly)
-                const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                window.showNotification(`Login berhasil! Selamat datang, ${userCredential.user.email}.`);
+                await signInWithEmailAndPassword(auth, email, password);
+                window.showNotification(`Login berhasil! Selamat datang.`);
+                // Auth state listener handles the role fetch and view change
             } catch (error) {
-                // Check for common errors
                 let message = 'Login gagal. Silakan coba lagi.';
                 if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
                     message = 'Email atau password salah.';
@@ -343,29 +397,30 @@
                 }
                 window.showNotification(message, 'error');
                 console.error('Login Error:', error);
+            } finally {
+                toggleLoading(false);
             }
         };
         
         window.handleSignOut = async function() {
+            toggleLoading(true);
             try {
                 await signOut(auth);
                 unsubscribeAll();
                 window.showNotification('Anda telah logout.', 'info');
+                // Auth state listener handles the view change to Guest/Login
             } catch (error) {
                 window.showNotification('Gagal logout.', 'error');
+            } finally {
+                toggleLoading(false);
             }
         };
 
         // --- ORDER MANAGEMENT (Exposed Globally) ---
-        
-        const servicePriceMap = {
-            'cleaning': 50000,
-            'detailing': 150000,
-            'repaint': 250000
-        };
 
         window.handleGuestOrder = async function (e) {
             e.preventDefault();
+            toggleLoading(true);
             const form = e.target;
             const customerName = form.customerName.value.trim();
             const customerPhone = form.customerPhone.value.trim();
@@ -374,6 +429,7 @@
             
             if (!customerName || !customerPhone || !shoeModel || !serviceType) {
                 window.showNotification('Semua field wajib diisi.', 'warning');
+                toggleLoading(false);
                 return;
             }
 
@@ -383,9 +439,9 @@
                 shoeModel,
                 serviceType,
                 price: servicePriceMap[serviceType] || 0,
-                status: 'pickup', // Default starting status
+                status: 'pickup', // Initial status
                 timestamp: serverTimestamp(),
-                guestId: appState.userUid || 'anon_guest'
+                guestId: auth.currentUser?.uid || 'anon_guest'
             };
 
             try {
@@ -395,15 +451,17 @@
             } catch (error) {
                 window.showNotification('Gagal memproses pesanan. Coba lagi.', 'error');
                 console.error('Order Submission Error:', error);
+            } finally {
+                toggleLoading(false);
             }
         };
         
-        window.updateOrderStatus = async function (orderId, currentStatus) {
+        window.updateOrderStatus = function (orderId, currentStatus) {
             const statusOrder = ['pickup', 'cleaning', 'detailing', 'delivery', 'dropoff'];
             const currentIndex = statusOrder.indexOf(currentStatus);
             
             if (currentIndex === -1 || currentIndex === statusOrder.length - 1) {
-                window.showNotification('Tidak ada status selanjutnya atau sudah selesai (dropoff).', 'warning');
+                window.showNotification('Pesanan sudah pada status akhir (dropoff).', 'warning');
                 return;
             }
             
@@ -411,15 +469,22 @@
             
             window.showModal(
                 'Update Status Pesanan',
-                `Yakin ingin mengubah status pesanan ${orderId.substring(0, 8)}... dari '${currentStatus.toUpperCase()}' menjadi '${nextStatus.toUpperCase()}'?`,
+                `Yakin ingin mengubah status pesanan ID ${orderId.substring(0, 8)}... dari '${currentStatus.toUpperCase()}' menjadi '${nextStatus.toUpperCase()}'?`,
                 async () => {
+                    toggleLoading(true);
                     const orderRef = doc(getOrdersCollectionRef(), orderId);
                     try {
-                        await updateDoc(orderRef, { status: nextStatus, updatedBy: appState.username });
-                        window.showNotification(`Status pesanan ${orderId.substring(0, 8)}... berhasil diubah menjadi ${nextStatus.toUpperCase()}`, 'success');
+                        await updateDoc(orderRef, { 
+                            status: nextStatus, 
+                            updatedBy: appState.username, 
+                            updatedAt: serverTimestamp() 
+                        });
+                        window.showNotification(`Status pesanan ID ${orderId.substring(0, 8)}... berhasil diubah menjadi ${nextStatus.toUpperCase()}`, 'success');
                     } catch (error) {
-                        window.showNotification('Gagal mengupdate status.', 'error');
+                        window.showNotification('Gagal mengupdate status. Periksa izin akses Anda.', 'error');
                         console.error('Update Status Error:', error);
+                    } finally {
+                        toggleLoading(false);
                     }
                 },
                 `Ubah ke ${nextStatus.toUpperCase()}`
@@ -433,8 +498,8 @@
                  window.showNotification('Hanya karyawan yang bisa absen.', 'warning');
                  return;
             }
-            
-            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            toggleLoading(true);
+            const today = new Date().toISOString().split('T')[0]; 
             const existingAttendance = appState.attendance.find(a => 
                 a.userId === appState.userUid && 
                 a.date === today &&
@@ -443,13 +508,14 @@
 
             if (existingAttendance) {
                  window.showNotification(`Anda sudah ${type === 'in' ? 'absen masuk' : 'absen pulang'} hari ini.`, 'warning');
+                 toggleLoading(false);
                  return;
             }
             
             const attendanceData = {
                 userId: appState.userUid,
                 userName: appState.username,
-                type: type, // 'in' or 'out'
+                type: type, 
                 date: today,
                 timestamp: serverTimestamp()
             };
@@ -458,8 +524,10 @@
                 await addDoc(getAttendanceCollectionRef(), attendanceData);
                 window.showNotification(`Absen ${type === 'in' ? 'Masuk' : 'Pulang'} berhasil!`, 'success');
             } catch (error) {
-                window.showNotification('Gagal menyimpan absen.', 'error');
+                window.showNotification('Gagal menyimpan absen. Periksa izin akses Anda.', 'error');
                 console.error('Attendance Error:', error);
+            } finally {
+                 toggleLoading(false);
             }
         };
 
@@ -469,75 +537,65 @@
         const header = document.getElementById('app-header');
 
         function renderView() {
-            document.getElementById('user-role-display').textContent = appState.role;
-            
-            if (appState.isAuthReady && !appState.isLoggedIn && appState.role !== 'guest') {
-                // Force login view if not logged in and not guest
-                renderLogin();
-                header.classList.add('hidden');
+            // Check auth readiness first (prevents "stuck" state)
+            if (!appState.isAuthReady) {
+                renderLoadingScreen();
                 return;
             }
-
-            header.classList.remove('hidden');
-            mainContent.innerHTML = '';
             
-            if (appState.role === 'loading') {
-                mainContent.innerHTML = `
-                    <div class="flex flex-col items-center p-8">
-                        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
-                        <p class="mt-4 text-gray-600">Memuat status dan peran...</p>
-                    </div>
-                `;
-            } else if (appState.role === 'guest') {
+            // Update header elements if they exist
+            document.getElementById('user-role-display').textContent = appState.role.toUpperCase();
+            
+            header.classList.add('hidden');
+            mainContent.classList.remove('justify-start', 'items-start'); 
+            mainContent.classList.add('justify-center', 'items-center'); 
+
+            if (!appState.isLoggedIn) {
+                // User is Anonymous/Guest -> Show Guest Order Input
                 renderGuestOrderInput();
-                header.classList.add('hidden');
+            } else if (appState.role === 'loading') {
+                // Should only briefly happen before subscribeToRole responds
+                renderLoadingScreen("Mengambil Peran dan Data Karyawan...");
             } else if (appState.role === 'admin' || appState.role === 'member') {
+                // Logged in with valid role -> Show Dashboard
                 renderDashboard();
+                header.classList.remove('hidden');
             } else {
-                 // Fallback: unauthorized logged-in user
-                mainContent.innerHTML = `
-                    <div class="card p-8 text-center max-w-lg">
-                        <i class="fas fa-lock text-red-500 text-4xl mb-4"></i>
-                        <h2 class="text-2xl font-bold mb-2">Akses Ditolak</h2>
-                        <p class="text-gray-600">Peran Anda (${appState.role}) tidak diizinkan mengakses dashboard ini. Silakan hubungi admin.</p>
-                    </div>
-                `;
+                 // Logged in but role fetch failed or role is 'unauthorized' -> Show Unauthorized
+                renderUnauthorized();
+                header.classList.remove('hidden');
             }
         }
         
-        function renderLogin() {
+        function renderLoadingScreen(message = "Memuat status aplikasi dan otentikasi...") {
              mainContent.innerHTML = `
-                <div class="card p-8 w-full max-w-md animate-fade-in">
-                    <div class="text-center mb-6">
-                        <i class="fas fa-shoe-prints text-indigo-600 text-3xl mb-2"></i>
-                        <h2 class="text-3xl font-extrabold text-gray-900">SCC Login</h2>
-                        <p class="text-sm text-gray-500 mt-2">Masuk sebagai Karyawan/Admin</p>
-                    </div>
-                    <form id="login-form">
-                        <div class="mb-4">
-                            <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
-                            <input type="email" id="email" name="email" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="employee@scc.com" required>
-                        </div>
-                        <div class="mb-6">
-                            <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
-                            <input type="password" id="password" name="password" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="********" required>
-                        </div>
-                        <button type="submit" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg font-semibold btn-primary">
-                            <i class="fas fa-sign-in-alt mr-2"></i> Masuk
-                        </button>
-                    </form>
-                    <p class="text-center text-xs text-gray-400 mt-4">Atau <a href="#" onclick="window.handleSignOut(); window.renderView();" class="text-indigo-500 hover:underline">Input Order sebagai Tamu</a></p>
+                <div class="flex flex-col items-center p-8 animate-fade-in">
+                    <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-indigo-600"></div>
+                    <p class="mt-4 text-gray-600 font-medium">${message}</p>
                 </div>
             `;
-            document.getElementById('login-form').addEventListener('submit', (e) => {
-                e.preventDefault();
-                const email = e.target.email.value;
-                const password = e.target.password.value;
-                window.handleLogin(email, password);
-            });
+        }
+
+        function renderUnauthorized() {
+            mainContent.innerHTML = `
+                <div class="card p-8 text-center max-w-lg animate-fade-in">
+                    <i class="fas fa-lock text-red-500 text-4xl mb-4"></i>
+                    <h2 class="text-2xl font-bold mb-2">Akses Ditolak</h2>
+                    <p class="text-gray-600">Peran Anda (${appState.role.toUpperCase()}) tidak diizinkan mengakses dashboard ini. Silakan hubungi admin.</p>
+                    <button onclick="window.handleSignOut()" class="mt-4 bg-red-600 text-white py-2 px-4 rounded-lg font-semibold btn-primary">
+                        Logout
+                    </button>
+                </div>
+            `;
         }
         
         function renderGuestOrderInput() {
+            if (appState.isLoggedIn) {
+                // If logged in, but somehow landed here, show login screen (shouldn't happen often)
+                renderLogin();
+                return;
+            }
+            
             mainContent.innerHTML = `
                 <div class="card p-8 w-full max-w-2xl animate-fade-in">
                     <div class="text-center mb-6">
@@ -545,7 +603,7 @@
                         <h2 class="text-3xl font-extrabold text-gray-900">Input Pesanan Pelanggan (Guest)</h2>
                         <p class="text-sm text-gray-500 mt-2">Masukkan detail sepatu dan layanan yang Anda butuhkan.</p>
                     </div>
-                    <form id="guest-order-form" onsubmit="window.handleGuestOrder(event)">
+                    <form onsubmit="window.handleGuestOrder(event)">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Nama Pelanggan</label>
@@ -569,27 +627,84 @@
                                 </select>
                             </div>
                         </div>
-                        <button type="submit" class="w-full mt-6 bg-green-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-green-700 btn-primary">
+                        <button type="submit" class="w-full mt-6 bg-green-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-green-700 btn-primary btn-action" ${appState.isLoading ? 'disabled' : ''}>
                             <i class="fas fa-paper-plane mr-2"></i> Submit Pesanan
+                            <i class="fas fa-spinner fa-spin ml-2 ${!appState.isLoading ? 'hidden' : ''}"></i>
                         </button>
                     </form>
-                    <p class="text-center text-xs text-gray-400 mt-4">Kembali ke <a href="#" onclick="window.handleSignOut(); window.renderView();" class="text-indigo-500 hover:underline">Login Karyawan</a></p>
+                    <p class="text-center text-xs text-gray-400 mt-4">Atau <a href="#" onclick="window.handleShowLogin()" class="text-indigo-500 hover:underline">Login sebagai Karyawan</a></p>
                 </div>
             `;
+            // Re-bind submit handler since innerHTML replaced it
+             if (!appState.isLoggedIn) {
+                 const form = document.querySelector('form');
+                 if (form) form.onsubmit = window.handleGuestOrder;
+             }
+        }
+
+        window.handleShowLogin = function() {
+            // First sign out anon user to ensure a clean state for email/password login
+            window.handleSignOut().then(() => {
+                // After successful sign out (or anon sign in failure), render the login form
+                renderLogin();
+            }).catch(() => {
+                // If sign out fails, proceed to render login anyway
+                renderLogin();
+            });
+        }
+        
+        function renderLogin() {
+             mainContent.innerHTML = `
+                <div class="card p-8 w-full max-w-md animate-fade-in">
+                    <div class="text-center mb-6">
+                        <i class="fas fa-shoe-prints text-indigo-600 text-3xl mb-2"></i>
+                        <h2 class="text-3xl font-extrabold text-gray-900">SCC Login</h2>
+                        <p class="text-sm text-gray-500 mt-2">Masuk sebagai Karyawan/Admin</p>
+                    </div>
+                    <form onsubmit="window.handleLogin(event)">
+                        <div class="mb-4">
+                            <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+                            <input type="email" id="email" name="email" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="employee@scc.com" required>
+                        </div>
+                        <div class="mb-6">
+                            <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                            <input type="password" id="password" name="password" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="********" required>
+                        </div>
+                        <button type="submit" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg font-semibold btn-primary btn-action" ${appState.isLoading ? 'disabled' : ''}>
+                            <i class="fas fa-sign-in-alt mr-2"></i> Masuk
+                            <i class="fas fa-spinner fa-spin ml-2 ${!appState.isLoading ? 'hidden' : ''}"></i>
+                        </button>
+                    </form>
+                    <p class="text-center text-xs text-gray-400 mt-4">Atau <a href="#" onclick="window.handleShowGuestOrder()" class="text-indigo-500 hover:underline">Input Order sebagai Tamu</a></p>
+                </div>
+            `;
+             if (!appState.isLoggedIn && appState.isAuthReady) {
+                 const form = document.querySelector('form');
+                 if (form) form.onsubmit = window.handleLogin;
+             }
+        }
+
+        window.handleShowGuestOrder = function() {
+             // Sign in anonymously to get a UID for guest orders
+             signInAnonymously(auth).catch(err => {
+                console.error("Anon sign-in failed for Guest view:", err);
+                window.showNotification('Gagal masuk sebagai tamu. Coba refresh.', 'error');
+            });
         }
         
         function renderDashboard() {
             mainContent.classList.remove('justify-center', 'items-center');
+            mainContent.classList.add('justify-start', 'items-start');
             mainContent.innerHTML = `
-                <div class="max-w-7xl mx-auto w-full py-8 px-4 sm:px-6 lg:px-8">
+                <div class="max-w-7xl mx-auto w-full py-8 px-4 sm:px-6 lg:px-8 animate-fade-in">
                     <h2 class="text-3xl font-bold text-gray-900 mb-6">Dashboard Karyawan SCC</h2>
-                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                         <div class="card p-5 bg-indigo-50 border-l-4 border-indigo-600">
                             <p class="text-sm font-medium text-gray-500">Total Pesanan</p>
                             <p class="text-3xl font-bold text-gray-900">${appState.orders.length}</p>
                         </div>
                         <div class="card p-5 bg-green-50 border-l-4 border-green-600">
-                            <p class="text-sm font-medium text-gray-500">Proses</p>
+                            <p class="text-sm font-medium text-gray-500">Proses Aktif</p>
                             <p class="text-3xl font-bold text-gray-900">${appState.orders.filter(o => o.status !== 'dropoff').length}</p>
                         </div>
                         <div class="card p-5 bg-yellow-50 border-l-4 border-yellow-600">
@@ -598,8 +713,8 @@
                         </div>
                         <div class="card p-5 bg-white shadow-md">
                             <p class="text-sm font-medium text-gray-500">Selamat datang</p>
-                            <p class="text-xl font-bold text-gray-900">${appState.username}</p>
-                            <p class="text-xs text-indigo-500 mt-1 uppercase">${appState.role}</p>
+                            <p class="text-xl font-bold text-gray-900 truncate">${appState.username}</p>
+                            <p class="text-xs text-indigo-500 mt-1 uppercase">${appState.role} | <span class="text-gray-500">${appState.userUid.substring(0, 8)}...</span></p>
                         </div>
                     </div>
                     
@@ -610,11 +725,13 @@
                             <div class="card p-6">
                                 <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-clock text-gray-500"></i> Absensi Karyawan</h3>
                                 <div class="flex space-x-3 mb-4">
-                                    <button onclick="window.handleAttendance('in')" class="flex-1 bg-green-500 text-white py-2 rounded-lg font-medium btn-primary disabled:opacity-50" ${isAttendanceRecorded('in') ? 'disabled' : ''}>
+                                    <button onclick="window.handleAttendance('in')" class="flex-1 bg-green-600 text-white py-2 rounded-lg font-medium btn-primary btn-action" ${isAttendanceRecorded('in') || appState.isLoading ? 'disabled' : ''}>
                                         <i class="fas fa-sign-in-alt mr-1"></i> Absen Masuk
+                                        <i class="fas fa-spinner fa-spin ml-2 ${!appState.isLoading ? 'hidden' : ''}"></i>
                                     </button>
-                                    <button onclick="window.handleAttendance('out')" class="flex-1 bg-red-500 text-white py-2 rounded-lg font-medium btn-primary disabled:opacity-50" ${isAttendanceRecorded('out') ? 'disabled' : ''}>
+                                    <button onclick="window.handleAttendance('out')" class="flex-1 bg-red-600 text-white py-2 rounded-lg font-medium btn-primary btn-action" ${isAttendanceRecorded('out') || appState.isLoading ? 'disabled' : ''}>
                                         <i class="fas fa-sign-out-alt mr-1"></i> Absen Pulang
+                                        <i class="fas fa-spinner fa-spin ml-2 ${!appState.isLoading ? 'hidden' : ''}"></i>
                                     </button>
                                 </div>
                                 <div class="mt-4 border-t pt-4">
@@ -632,7 +749,7 @@
                                 </div>
                                 <p class="text-sm text-gray-500 mb-3">Masukkan ID Pesanan untuk melanjutkan proses.</p>
                                 <input type="text" id="scan-input" placeholder="Contoh: ID Order 1234..." class="w-full px-3 py-2 border border-gray-300 rounded-md mb-3">
-                                <button onclick="window.handleScan()" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium btn-primary">
+                                <button onclick="window.handleScan()" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium btn-primary btn-action" ${appState.isLoading ? 'disabled' : ''}>
                                     <i class="fas fa-search"></i> Cari & Update
                                 </button>
                             </div>
@@ -641,8 +758,8 @@
                         <!-- Right Column: Order List -->
                         <div class="lg:col-span-2 space-y-6">
                             <div class="card p-6">
-                                <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-list-ul text-gray-500"></i> Daftar Pesanan (<span class="text-indigo-600">${appState.orders.length}</span>)</h3>
-                                <div class="overflow-x-auto">
+                                <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-list-ul text-gray-500"></i> Daftar Pesanan Terbaru (<span class="text-indigo-600">${appState.orders.length}</span>)</h3>
+                                <div class="table-responsive">
                                     ${renderOrderTable()}
                                 </div>
                             </div>
@@ -670,19 +787,22 @@
                 return '<p class="text-center text-gray-500 py-4">Belum ada pesanan yang masuk.</p>';
             }
 
-            let tableRows = appState.orders.map(order => `
+            // Limit display to the last 20 orders for performance
+            const displayOrders = appState.orders.slice(0, 20);
+
+            let tableRows = displayOrders.map(order => `
                 <tr class="border-b hover:bg-gray-50">
                     <td class="px-6 py-3 text-sm font-medium text-gray-900">${order.id.substring(0, 6)}...</td>
                     <td class="px-6 py-3 text-sm">${order.customerName}</td>
                     <td class="px-6 py-3 text-sm">${order.shoeModel}</td>
                     <td class="px-6 py-3 text-sm font-semibold">${(order.price || 0).toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}</td>
                     <td class="px-6 py-3">
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(order.status)}">
+                        <span class="status-badge ${getStatusColor(order.status)}">
                             ${order.status.toUpperCase()}
                         </span>
                     </td>
                     <td class="px-6 py-3 text-right whitespace-nowrap">
-                        <button onclick="window.updateOrderStatus('${order.id}', '${order.status}')" class="text-indigo-600 hover:text-indigo-900 font-medium text-xs disabled:opacity-50" ${order.status === 'dropoff' ? 'disabled' : ''}>
+                        <button onclick="window.updateOrderStatus('${order.id}', '${order.status}')" class="text-indigo-600 hover:text-indigo-900 font-medium text-xs btn-action" ${order.status === 'dropoff' || appState.isLoading ? 'disabled' : ''}>
                             Update Status <i class="fas fa-arrow-right ml-1"></i>
                         </button>
                     </td>
@@ -691,7 +811,7 @@
 
             return `
                 <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-gray-50 sticky top-0">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pelanggan</th>
@@ -705,6 +825,7 @@
                         ${tableRows}
                     </tbody>
                 </table>
+                <p class="text-xs text-gray-400 mt-2 p-2">Menampilkan ${displayOrders.length} dari ${appState.orders.length} pesanan terbaru.</p>
             `;
         }
 
@@ -724,7 +845,7 @@
             }
 
             return userAttendance.map(a => {
-                const time = new Date(a.timestamp.seconds * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                const time = a.timestamp?.seconds ? new Date(a.timestamp.seconds * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
                 const icon = a.type === 'in' ? 'fas fa-arrow-right text-green-500' : 'fas fa-arrow-left text-red-500';
                 const label = a.type === 'in' ? 'Masuk' : 'Pulang';
                 
@@ -742,26 +863,20 @@
         window.handleScan = function() {
             const input = document.getElementById('scan-input').value.trim();
             if (!input) {
-                window.showNotification('Masukkan ID Pesanan terlebih dahulu.', 'warning');
+                window.showNotification('Masukkan ID Pesanan atau 6 karakter awal ID terlebih dahulu.', 'warning');
                 return;
             }
 
-            const foundOrder = appState.orders.find(o => o.id === input || o.id.substring(0, 6) === input.substring(0, 6));
+            // Find order by full ID or first 6 characters of ID
+            const foundOrder = appState.orders.find(o => 
+                o.id === input || 
+                (o.id && o.id.length >= 6 && o.id.substring(0, 6) === input.substring(0, 6))
+            );
 
             if (foundOrder) {
-                const statusOrder = ['pickup', 'cleaning', 'detailing', 'delivery', 'dropoff'];
-                const currentIndex = statusOrder.indexOf(foundOrder.status);
-                
-                if (currentIndex === -1 || currentIndex === statusOrder.length - 1) {
-                    window.showNotification(`Pesanan ${foundOrder.id.substring(0, 6)}... sudah selesai (dropoff).`, 'info');
-                    return;
-                }
-                
-                // Use existing update function
                 window.updateOrderStatus(foundOrder.id, foundOrder.status);
-                
             } else {
-                window.showNotification(`Pesanan dengan ID '${input}' tidak ditemukan.`, 'error');
+                window.showNotification(`Pesanan dengan ID atau kode '${input}' tidak ditemukan.`, 'error');
             }
         }
 
