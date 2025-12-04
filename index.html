@@ -3,948 +3,384 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SCC - Sneakers Care Corner Management</title>
+    <title>RBAC App - Siap Deploy</title>
+    <!-- CDN untuk Tailwind CSS (untuk styling) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Font Awesome for Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-        .btn-primary { transition: all 0.15s; }
-        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3); }
-        .btn-primary:active:not(:disabled) { transform: translateY(0); }
-        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    <!-- CDN untuk React dan ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- CDN untuk Babel (mengizinkan browser membaca JSX di <script type="text/babel">) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-        .modal {
-            background-color: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(5px);
-            z-index: 50;
-        }
-        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    <!-- CDN untuk Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        #scan-simulator {
-            height: 150px;
-            background: #111;
-            border: 4px solid #4f46e5;
-            position: relative;
-            overflow: hidden;
-        }
-        .scan-line {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background: #4f46e5;
-            box-shadow: 0 0 10px #4f46e5, 0 0 20px #4f46e5;
-            animation: scanning 3s infinite linear;
-        }
-        @keyframes scanning {
-            0% { transform: translateY(0%); }
-            50% { transform: translateY(1000%); }
-            100% { transform: translateY(0%); }
-        }
-        .status-badge {
-            padding: 0.25rem 0.6rem;
-            font-size: 0.75rem;
-            line-height: 1;
-            font-weight: 600;
-            border-radius: 9999px;
-            display: inline-flex;
-            text-transform: uppercase;
-        }
-        .table-responsive {
-            max-height: 400px; /* Batasi tinggi tabel untuk scroll yang cepat */
-            overflow-y: auto;
-        }
-    </style>
+        // Atur log level ke Debug untuk melihat semua aktivitas Firebase di console
+        setLogLevel('debug');
+
+        // --- GLOBAL VARIABLES (Diambil dari lingkungan Canvas) ---
+        // Jika Anda menjalankan file ini di luar Canvas, Anda harus mengisi nilai-nilai ini secara manual
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'rbac-app-demo';
+        // PENTING: Jika Anda menjalankan ini secara lokal, GANTI {} dengan konfigurasi Firebase project Anda!
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : { apiKey: "", authDomain: "", projectId: "" /* ... lainnya */ };
+        
+        // FIX: Menggunakan nama variabel global yang benar: __initial_auth_token
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null; 
+        
+        // --- 1. INISIALISASI FIREBASE ---
+        window.app = initializeApp(firebaseConfig);
+        window.db = getFirestore(window.app);
+        window.auth = getAuth(window.app);
+        window.initialAuthToken = initialAuthToken; 
+
+        // Export fungsi-fungsi Firebase ke window agar bisa diakses oleh kode Babel
+        window.FirebaseServices = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+            getFirestore, doc, onSnapshot, setLogLevel
+        };
+        window.GlobalConfig = { appId, initialAuthToken };
+    </script>
 </head>
 <body>
-
-    <!-- Main Application Container -->
-    <div id="app" class="min-h-screen flex flex-col">
-        <!-- Header (Visible on Dashboard, Member) -->
-        <header id="app-header" class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40 hidden">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-                <h1 class="text-2xl font-black text-gray-900 flex items-center gap-2">
-                    <i class="fas fa-shoe-prints text-indigo-600"></i> SCC
-                </h1>
-                <div class="flex items-center space-x-4">
-                    <span id="user-role-display" class="bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1 rounded-full uppercase"></span>
-                    <button onclick="window.handleSignOut()" class="text-sm text-red-500 hover:text-red-700 transition font-medium">
-                        <i class="fas fa-sign-out-alt mr-1"></i> Logout
-                    </button>
-                </div>
-            </div>
-        </header>
-
-        <!-- Main Content Area -->
-        <main id="main-content" class="flex-grow flex justify-center items-center p-4">
-            <!-- Content will be injected here (Login, Dashboard, Order Form) -->
-        </main>
-
-        <!-- Confirmation Modal -->
-        <div id="confirmation-modal" class="fixed inset-0 modal items-center justify-center hidden" onclick="window.closeModal()">
-            <div class="card p-6 w-11/12 max-w-sm" onclick="event.stopPropagation()">
-                <h3 id="modal-title" class="text-xl font-bold text-gray-800 mb-4">Konfirmasi</h3>
-                <p id="modal-message" class="text-gray-600 mb-6">Apakah Anda yakin ingin melanjutkan?</p>
-                <div class="flex justify-end space-x-3">
-                    <button onclick="window.closeModal()" class="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition">Batal</button>
-                    <button id="modal-confirm-btn" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 btn-primary">Konfirmasi</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Notification Message Box -->
-        <div id="notification-box" class="fixed bottom-4 right-4 p-4 rounded-lg shadow-xl text-white hidden transition-all duration-300 opacity-0" style="min-width: 250px;">
-            <p id="notification-message"></p>
+    <div id="root">
+        <!-- Loader sederhana sebelum React dimuat -->
+        <div class="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            <p class="mt-4 text-lg text-indigo-600">Memuat Aplikasi...</p>
         </div>
     </div>
 
-    <!-- Firebase SDK Imports (Module) -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, collection, query, addDoc, updateDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <!-- Kode React/JSX dimuat melalui Babel -->
+    <script type="text/babel">
+        // Mengambil variabel global dan layanan Firebase dari window
+        const { useState, useEffect, createContext, useContext } = React;
+        const { appId, initialAuthToken } = window.GlobalConfig;
+        const { 
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
+            signInWithEmailAndPassword, signOut, getFirestore, doc, onSnapshot 
+        } = window.FirebaseServices;
 
-        // --- GLOBAL SETUP ---
-        let app, db, auth;
-        let unsubscribeRole, unsubscribeOrders, unsubscribeAttendance;
-        
-        // State management
-        const appState = {
-            isAuthReady: false,
-            isLoggedIn: false,
-            userUid: null,
-            role: 'loading', // initial role state
-            username: '',
-            orders: [],
-            attendance: [],
-            isLoading: false // Global loading state for UI actions
-        };
+        const db = window.db;
+        const auth = window.auth;
 
-        // Utility to safely retrieve global variables from the Canvas environment
-        const getGlobalVar = (name, defaultValue) => {
-            return typeof window[name] !== 'undefined' ? window[name] : defaultValue;
-        };
-
-        const APP_ID = getGlobalVar('__app_id', 'default-scc-app');
-        // Parse FIREBASE_CONFIG safely, defaulting to an empty object if parsing fails
-        let FIREBASE_CONFIG = {};
-        try {
-            FIREBASE_CONFIG = JSON.parse(getGlobalVar('__firebase_config', '{}'));
-        } catch (e) {
-            console.error("Failed to parse __firebase_config:", e);
-        }
-        
-        const INITIAL_AUTH_TOKEN = getGlobalVar('__initial_auth_token', '');
-        
-        // Price Map for order calculation
-        const servicePriceMap = {
-            'cleaning': 50000,
-            'detailing': 150000,
-            'repaint': 250000
-        };
-        
-        // --- UTILITIES & UI FEEDBACK ---
-        
-        const mainContent = document.getElementById('main-content');
-        
-        function renderCriticalError(title, message, detail = "") {
-             mainContent.innerHTML = `
-                <div class="card p-8 text-center max-w-md bg-red-100 animate-fade-in">
-                    <i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>
-                    <h2 class="text-2xl font-bold mb-2 text-red-800">${title}</h2>
-                    <p class="text-gray-700 mb-4">${message}</p>
-                    ${detail ? `<p class="text-xs mt-2 text-red-600 font-mono bg-red-50 p-2 rounded">${detail}</p>` : ''}
-                </div>
-            `;
-        }
-
-        /** Shows temporary notification messages */
-        window.showNotification = function (message, type = 'success') {
-            const box = document.getElementById('notification-box');
-            const msgEl = document.getElementById('notification-message');
-            
-            box.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-yellow-600', 'bg-indigo-600', 'opacity-100');
-            box.classList.add('opacity-0');
-
-            if (type === 'success') box.classList.add('bg-green-600');
-            else if (type === 'error') box.classList.add('bg-red-600');
-            else if (type === 'warning') box.classList.add('bg-yellow-600');
-            else if (type === 'info') box.classList.add('bg-indigo-600');
-
-            msgEl.textContent = message;
-            
-            // Show
-            setTimeout(() => {
-                box.classList.remove('opacity-0');
-                box.classList.add('opacity-100');
-            }, 10);
-            
-            // Hide after 3 seconds
-            setTimeout(() => {
-                box.classList.remove('opacity-100');
-                box.classList.add('opacity-0');
-            }, 3000);
-            
-            // Fully hide the element after transition
-            setTimeout(() => {
-                 box.classList.add('hidden');
-            }, 3300);
-        }
-
-        /** Shows a custom confirmation modal (replacing alert/confirm) */
-        window.showModal = function (title, message, onConfirm, confirmText = 'Lanjutkan', isDestructive = false) {
-            const modal = document.getElementById('confirmation-modal');
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-message').textContent = message;
-            const confirmBtn = document.getElementById('modal-confirm-btn');
-
-            confirmBtn.textContent = confirmText;
-            // Reset background colors
-            confirmBtn.className = confirmBtn.className.replace(/bg-red-\d+|bg-indigo-\d+|hover:bg-red-\d+|hover:bg-indigo-\d+/g, '');
-
-            // Apply appropriate color
-            if (isDestructive) {
-                confirmBtn.classList.add('bg-red-600', 'hover:bg-red-700');
-            } else {
-                confirmBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
-            }
-
-            confirmBtn.onclick = () => {
-                onConfirm();
-                window.closeModal();
-            };
-
-            modal.classList.remove('hidden');
-            modal.classList.add('flex', 'animate-fade-in');
-        }
-
-        window.closeModal = function () {
-            const modal = document.getElementById('confirmation-modal');
-            modal.classList.remove('flex', 'animate-fade-in');
-            modal.classList.add('hidden');
-        }
-
-        /** Toggles the global loading state and disables action buttons */
-        function toggleLoading(isLoading) {
-            appState.isLoading = isLoading;
-            const buttons = document.querySelectorAll('.btn-action');
-            buttons.forEach(btn => {
-                btn.disabled = isLoading;
-                const spinner = btn.querySelector('.fa-spinner');
-                if (spinner) {
-                    if (isLoading) spinner.classList.remove('hidden');
-                    else spinner.classList.add('hidden');
-                }
-            });
-        }
-        
-        // --- FIREBASE INITIALIZATION & AUTH ---
-
-        function initializeFirebase() {
-            // CRITICAL CHECK: Ensure Firebase config is valid
-            if (!FIREBASE_CONFIG || !FIREBASE_CONFIG.projectId) {
-                renderCriticalError(
-                    "Error Konfigurasi Firebase",
-                    "Aplikasi gagal terhubung karena 'projectId' tidak disediakan. Pastikan konfigurasi Firebase dimuat dengan benar.",
-                    `Detail Error: "projectId" not provided in firebase.initializeApp.`
-                );
-                return false; // Stop initialization
-            }
-
-            try {
-                app = initializeApp(FIREBASE_CONFIG);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                setLogLevel('Debug'); // Enable Firebase logging in console
-                console.log('Firebase initialized successfully.');
-                return true;
-            } catch (error) {
-                console.error(`Error initializing Firebase: ${error.message}`);
-                renderCriticalError(
-                    "Error Inisialisasi Firebase",
-                    "Aplikasi gagal terhubung ke backend. Cek konfigurasi atau jaringan Anda.",
-                    error.message
-                );
-                return false;
-            }
-        }
-
-        /** Sets up the primary authentication listener to manage user state */
-        function setupAuthListener() {
-            onAuthStateChanged(auth, async (user) => {
-                appState.isAuthReady = true;
-                if (user) {
-                    appState.isLoggedIn = true;
-                    appState.userUid = user.uid;
-                    // For authenticated users, try to use email if available, otherwise use a shortened UID
-                    appState.username = user.email || `User-${user.uid.substring(0, 6)}`; 
-                    
-                    // Subscribe to role and data immediately upon successful login/auth
-                    subscribeToRole(user.uid);
-                    subscribeToOrders();
-                    subscribeToAttendance();
-                } else {
-                    appState.isLoggedIn = false;
-                    appState.userUid = null;
-                    appState.role = 'guest'; // Default role for unauthenticated users
-                    appState.username = '';
-                    
-                    // Unsubscribe previous listeners and render guest view
-                    unsubscribeAll();
-                    renderView(); 
-                }
-            });
-            
-            // Attempt automatic sign-in for Canvas environment only if no user is currently logged in.
-            // This prevents the automatic token/anon sign-in from overriding a manual email/password sign-in.
-            if (!auth.currentUser) {
-                if (INITIAL_AUTH_TOKEN) {
-                    signInWithCustomToken(auth, INITIAL_AUTH_TOKEN).catch(error => {
-                        console.warn(`Custom token failed. Starting as Guest.`);
-                        signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
-                    });
-                } else {
-                     signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
-                }
-            }
-        }
-
-        /** Stops all Firestore real-time listeners */
-        function unsubscribeAll() {
-            if (unsubscribeRole) { unsubscribeRole(); unsubscribeRole = null; }
-            if (unsubscribeOrders) { unsubscribeOrders(); unsubscribeOrders = null; }
-            if (unsubscribeAttendance) { unsubscribeAttendance(); unsubscribeAttendance = null; }
-        }
-
-        // --- FIRESTORE REFERENCE PATHS ---
-
-        function getRoleDocRef(uid) {
+        // Path Firestore untuk peran pengguna (sesuai aturan keamanan publik)
+        const getUserRoleDocRef = (userId) => {
             // Path: /artifacts/{appId}/public/data/user_roles/{userId}
-            return doc(db, `artifacts/${APP_ID}/public/data/user_roles/${uid}`);
-        }
-        function getOrdersCollectionRef() {
-            // Path: /artifacts/{appId}/public/data/orders
-            return collection(db, `artifacts/${APP_ID}/public/data/orders`);
-        }
-        function getAttendanceCollectionRef() {
-            // Path: /artifacts/{appId}/public/data/attendance
-            return collection(db, `artifacts/${APP_ID}/public/data/attendance`);
-        }
+            return doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', userId);
+        };
 
-        // --- FIREBASE DATA LISTENERS (onSnapshot) ---
+        // --- 2. CONTEXT UNTUK MANAJEMEN STATUS AUTH & ROLE ---
+        const AuthContext = createContext(null);
+        const useAuth = () => useContext(AuthContext);
 
-        /** Subscribes to the user's role document */
-        function subscribeToRole(uid) {
-            if (unsubscribeRole) unsubscribeRole();
-            // Guard clause to prevent unnecessary connections
-            if (!appState.isAuthReady || !db || appState.role === 'guest') return;
+        // --- 3. KOMPONEN PENYEDIA (PROVIDER) AUTHENTIKASI ---
+        const AuthProvider = ({ children }) => {
+            const [user, setUser] = useState(null); 
+            const [role, setRole] = useState('loading'); 
+            const [isAuthReady, setIsAuthReady] = useState(false);
 
-            const roleRef = getRoleDocRef(uid);
-            
-            unsubscribeRole = onSnapshot(roleRef, (docSnap) => {
-                // If role doc exists, use its role. Otherwise, default to 'member' for logged-in users.
-                const newRole = docSnap.exists() && docSnap.data().role ? docSnap.data().role : 'member'; 
+            useEffect(() => {
+                let unsubscribeRole = () => {};
                 
-                appState.role = newRole;
-                console.log(`Role updated: ${newRole}`);
-                renderView();
-            }, (error) => {
-                // Explicit error handling: Security Rules or Network failure
-                console.error(`Error fetching role (Security Rules issue?): ${error.message}`);
-                // Set role to 'unauthorized' if we are logged in but cannot read data
-                appState.role = appState.isLoggedIn ? 'unauthorized' : 'guest'; 
-                window.showNotification('Gagal memuat peran Anda. Akses mungkin terbatas.', 'error');
-                renderView();
-            });
-        }
-        
-        /** Subscribes to the public orders collection */
-        function subscribeToOrders() {
-            if (unsubscribeOrders) unsubscribeOrders();
-            // Guard clause
-            if (!appState.isAuthReady || appState.role === 'guest' || !db) return;
+                // --- 3a. Inisialisasi Auth Pertama Kali ---
+                const setupAuth = async () => {
+                    // FIX: Hanya mencoba Custom Token. Jika gagal, biarkan user = null untuk mencegah error 'auth/operation-not-allowed' dari signInAnonymously
+                    if (initialAuthToken) {
+                        try {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } catch (error) {
+                            console.error("Gagal masuk dengan token kustom:", error);
+                            // Tidak mencoba signInAnonymously untuk menghindari error konfigurasi Firebase
+                        }
+                    } 
+                    // Jika tidak ada token kustom, atau jika token kustom gagal, user akan null dan app menampilkan Login
+                    setIsAuthReady(true);
+                };
 
-            const ordersQuery = query(getOrdersCollectionRef());
-
-            unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-                appState.orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Sort by timestamp descending (newest first)
-                appState.orders.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); 
-                renderView();
-            }, (error) => {
-                console.error("Error fetching orders:", error);
-                window.showNotification('Gagal memuat daftar pesanan. (Cek Security Rules)', 'error');
-            });
-        }
-
-        /** Subscribes to the public attendance collection */
-        function subscribeToAttendance() {
-            if (unsubscribeAttendance) unsubscribeAttendance();
-            // Guard clause
-            if (!appState.isAuthReady || appState.role === 'guest' || !db) return;
-            
-            const attendanceQuery = query(getAttendanceCollectionRef());
-
-            unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
-                appState.attendance = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Sort by timestamp descending (newest first)
-                appState.attendance.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-                renderView();
-            }, (error) => {
-                console.error("Error fetching attendance:", error);
-                window.showNotification('Gagal memuat data absen. (Cek Security Rules)', 'error');
-            });
-        }
-
-        // --- AUTH/LOGIN HANDLERS (Exposed Globally) ---
-
-        window.handleLogin = async function (e) {
-            e.preventDefault();
-            toggleLoading(true);
-            const email = e.target.email.value;
-            const password = e.target.password.value;
-            const errorBox = document.getElementById('login-error-message');
-            errorBox.classList.add('hidden'); // Reset error message on new attempt
-
-            if (!email || !password) {
-                window.showNotification('Email dan password tidak boleh kosong.', 'warning');
-                toggleLoading(false);
-                return;
-            }
-            try {
-                 // Sign out the current user (could be anonymous/custom token user) before logging in
-                 if (auth.currentUser) {
-                     await signOut(auth);
-                 }
-                 
-                await signInWithEmailAndPassword(auth, email, password);
-                window.showNotification(`Login berhasil! Selamat datang.`);
-                // Auth state listener handles the role fetch and view change
-            } catch (error) {
-                let message = 'Login gagal. Silakan coba lagi.';
-                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-                    message = 'Email atau password salah. Pastikan akun sudah terdaftar.';
-                } else if (error.code === 'auth/invalid-email') {
-                    message = 'Format email tidak valid.';
-                } else if (error.code === 'auth/operation-not-allowed') {
-                    // Specific error handling for the reported issue
-                    message = 'LOGIN GAGAL: Penyedia Email/Password TIDAK AKTIF. HARUS diaktifkan di Konsol Firebase > Authentication > Sign-in method.';
-                    errorBox.textContent = message;
-                    errorBox.classList.remove('hidden');
+                // Memastikan inisialisasi berjalan sekali
+                if (auth && !isAuthReady) {
+                    setupAuth();
                 }
-                window.showNotification(message, 'error');
-                console.error('Login Error:', error);
-            } finally {
-                toggleLoading(false);
-            }
-        };
-        
-        window.handleSignOut = async function() {
-            toggleLoading(true);
-            try {
-                await signOut(auth);
-                unsubscribeAll();
-                window.showNotification('Anda telah logout.', 'info');
-                // The onAuthStateChanged listener will fire and then sign in anonymously automatically
-            } catch (error) {
-                window.showNotification('Gagal logout.', 'error');
-            } finally {
-                toggleLoading(false);
-            }
-        };
 
-        // --- ORDER MANAGEMENT (Exposed Globally) ---
-
-        window.handleGuestOrder = async function (e) {
-            e.preventDefault();
-            toggleLoading(true);
-            const form = e.target;
-            const customerName = form.customerName.value.trim();
-            const customerPhone = form.customerPhone.value.trim();
-            const shoeModel = form.shoeModel.value.trim();
-            const serviceType = form.serviceType.value;
-            
-            if (!customerName || !customerPhone || !shoeModel || !serviceType) {
-                window.showNotification('Semua field wajib diisi.', 'warning');
-                toggleLoading(false);
-                return;
-            }
-
-            const newOrder = {
-                customerName,
-                customerPhone,
-                shoeModel,
-                serviceType,
-                price: servicePriceMap[serviceType] || 0,
-                status: 'pickup', // Initial status
-                timestamp: serverTimestamp(),
-                guestId: auth.currentUser?.uid || 'anon_guest'
-            };
-
-            try {
-                await addDoc(getOrdersCollectionRef(), newOrder);
-                window.showNotification('Pesanan Anda berhasil dibuat! Karyawan kami akan segera menjemput sepatu Anda.', 'success');
-                form.reset();
-            } catch (error) {
-                window.showNotification('Gagal memproses pesanan. Coba lagi.', 'error');
-                console.error('Order Submission Error:', error);
-            } finally {
-                toggleLoading(false);
-            }
-        };
-        
-        window.updateOrderStatus = function (orderId, currentStatus) {
-            const statusOrder = ['pickup', 'cleaning', 'detailing', 'delivery', 'dropoff'];
-            const currentIndex = statusOrder.indexOf(currentStatus);
-            
-            if (currentIndex === -1 || currentIndex === statusOrder.length - 1) {
-                window.showNotification('Pesanan sudah pada status akhir (dropoff).', 'warning');
-                return;
-            }
-            
-            const nextStatus = statusOrder[currentIndex + 1];
-            
-            window.showModal(
-                'Update Status Pesanan',
-                `Yakin ingin mengubah status pesanan ID ${orderId.substring(0, 8)}... dari '${currentStatus.toUpperCase()}' menjadi '${nextStatus.toUpperCase()}'?`,
-                async () => {
-                    toggleLoading(true);
-                    const orderRef = doc(getOrdersCollectionRef(), orderId);
-                    try {
-                        await updateDoc(orderRef, { 
-                            status: nextStatus, 
-                            updatedBy: appState.username, 
-                            updatedAt: serverTimestamp() 
-                        });
-                        window.showNotification(`Status pesanan ID ${orderId.substring(0, 8)}... berhasil diubah menjadi ${nextStatus.toUpperCase()}`, 'success');
-                    } catch (error) {
-                        window.showNotification('Gagal mengupdate status. Periksa izin akses Anda.', 'error');
-                        console.error('Update Status Error:', error);
-                    } finally {
-                        toggleLoading(false);
-                    }
-                },
-                `Ubah ke ${nextStatus.toUpperCase()}`
-            );
-        };
-        
-        // --- EMPLOYEE ATTENDANCE (Exposed Globally) ---
-
-        window.handleAttendance = async function (type) {
-            if (appState.role === 'guest') {
-                 window.showNotification('Hanya karyawan yang bisa absen.', 'warning');
-                 return;
-            }
-            toggleLoading(true);
-            const today = new Date().toISOString().split('T')[0]; 
-            const existingAttendance = appState.attendance.find(a => 
-                a.userId === appState.userUid && 
-                a.date === today &&
-                a.type === type
-            );
-
-            if (existingAttendance) {
-                 window.showNotification(`Anda sudah ${type === 'in' ? 'absen masuk' : 'absen pulang'} hari ini.`, 'warning');
-                 toggleLoading(false);
-                 return;
-            }
-            
-            const attendanceData = {
-                userId: appState.userUid,
-                userName: appState.username,
-                type: type, 
-                date: today,
-                timestamp: serverTimestamp()
-            };
-
-            try {
-                await addDoc(getAttendanceCollectionRef(), attendanceData);
-                window.showNotification(`Absen ${type === 'in' ? 'Masuk' : 'Pulang'} berhasil!`, 'success');
-            } catch (error) {
-                window.showNotification('Gagal menyimpan absen. Periksa izin akses Anda.', 'error');
-                console.error('Attendance Error:', error);
-            } finally {
-                 toggleLoading(false);
-            }
-        };
-
-        // --- RENDERING VIEWS ---
-
-        const header = document.getElementById('app-header');
-
-        function renderView() {
-            // Check auth readiness first (prevents "stuck" state)
-            if (!appState.isAuthReady) {
-                renderLoadingScreen();
-                return;
-            }
-            
-            // Update header elements if they exist
-            if (document.getElementById('user-role-display')) {
-                document.getElementById('user-role-display').textContent = appState.role.toUpperCase();
-            }
-            
-            header.classList.add('hidden');
-            mainContent.classList.remove('justify-start', 'items-start'); 
-            mainContent.classList.add('justify-center', 'items-center'); 
-
-            if (!appState.isLoggedIn || appState.role === 'guest') {
-                // User is Anonymous/Guest -> Show Guest Order Input
-                renderGuestOrderInput();
-            } else if (appState.role === 'loading') {
-                // Should only briefly happen before subscribeToRole responds
-                renderLoadingScreen("Mengambil Peran dan Data Karyawan...");
-            } else if (appState.role === 'admin' || appState.role === 'member') {
-                // Logged in with valid role -> Show Dashboard
-                renderDashboard();
-                header.classList.remove('hidden');
-            } else {
-                 // Logged in but role fetch failed or role is 'unauthorized' -> Show Unauthorized
-                renderUnauthorized();
-                header.classList.remove('hidden');
-            }
-        }
-        
-        function renderLoadingScreen(message = "Memuat status aplikasi dan otentikasi...") {
-             mainContent.innerHTML = `
-                <div class="flex flex-col items-center p-8 animate-fade-in">
-                    <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-indigo-600"></div>
-                    <p class="mt-4 text-gray-600 font-medium">${message}</p>
-                </div>
-            `;
-        }
-
-        function renderUnauthorized() {
-            mainContent.innerHTML = `
-                <div class="card p-8 text-center max-w-lg animate-fade-in">
-                    <i class="fas fa-lock text-red-500 text-4xl mb-4"></i>
-                    <h2 class="text-2xl font-bold mb-2">Akses Ditolak</h2>
-                    <p class="text-gray-600">Peran Anda (${appState.role.toUpperCase()}) tidak diizinkan mengakses dashboard ini. Silakan hubungi admin.</p>
-                    <button onclick="window.handleSignOut()" class="mt-4 bg-red-600 text-white py-2 px-4 rounded-lg font-semibold btn-primary">
-                        Logout
-                    </button>
-                </div>
-            `;
-        }
-        
-        function renderGuestOrderInput() {
-            if (auth.currentUser && !auth.currentUser.isAnonymous) {
-                // If the user is logged in with email/password, they should not see this screen
-                return;
-            }
-            
-            mainContent.innerHTML = `
-                <div class="card p-8 w-full max-w-2xl animate-fade-in">
-                    <div class="text-center mb-6">
-                        <i class="fas fa-box-open text-green-600 text-3xl mb-2"></i>
-                        <h2 class="text-3xl font-extrabold text-gray-900">Input Pesanan Pelanggan (Guest)</h2>
-                        <p class="text-sm text-gray-500 mt-2">Masukkan detail sepatu dan layanan yang Anda butuhkan.</p>
-                    </div>
-                    <form onsubmit="window.handleGuestOrder(event)">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">Nama Pelanggan</label>
-                                <input name="customerName" type="text" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" required>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">Nomor Telepon</label>
-                                <input name="customerPhone" type="tel" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" required>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">Model Sepatu</label>
-                                <input name="shoeModel" type="text" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" required>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">Jenis Layanan</label>
-                                <select name="serviceType" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" required>
-                                    <option value="">-- Pilih Layanan --</option>
-                                    <option value="cleaning">Deep Cleaning (Rp 50.000)</option>
-                                    <option value="detailing">Premium Detailing (Rp 150.000)</option>
-                                    <option value="repaint">Repaint & Restoration (Rp 250.000)</option>
-                                </select>
-                            </div>
-                        </div>
-                        <button type="submit" class="w-full mt-6 bg-green-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-green-700 btn-primary btn-action" ${appState.isLoading ? 'disabled' : ''}>
-                            <i class="fas fa-paper-plane mr-2"></i> Submit Pesanan
-                            <i class="fas fa-spinner fa-spin ml-2 ${!appState.isLoading ? 'hidden' : ''}"></i>
-                        </button>
-                    </form>
-                    <p class="text-center text-xs text-gray-400 mt-4">Atau <a href="#" onclick="window.handleShowLogin()" class="text-indigo-500 hover:underline">Login sebagai Karyawan</a></p>
-                </div>
-            `;
-            // Re-bind submit handler since innerHTML replaced it
-             if (!appState.isLoggedIn) {
-                 const form = document.querySelector('form');
-                 if (form) form.onsubmit = window.handleGuestOrder;
-             }
-        }
-
-        window.handleShowLogin = function() {
-            // Sign out current user (anon/custom token) before showing login form
-            if (auth.currentUser) {
-                signOut(auth).then(() => renderLogin());
-            } else {
-                 renderLogin();
-            }
-        }
-        
-        function renderLogin() {
-             mainContent.innerHTML = `
-                <div class="card p-8 w-full max-w-md animate-fade-in">
-                    <div class="text-center mb-6">
-                        <i class="fas fa-shoe-prints text-indigo-600 text-3xl mb-2"></i>
-                        <h2 class="text-3xl font-extrabold text-gray-900">SCC Login</h2>
-                        <p class="text-sm text-gray-500 mt-2">Masuk sebagai Karyawan/Admin</p>
-                    </div>
-                    <form onsubmit="window.handleLogin(event)">
-                        <!-- Error Message Display Area - Visible only on auth/operation-not-allowed error -->
-                        <div id="login-error-message" class="hidden p-3 mb-4 text-sm font-medium text-red-800 bg-red-100 border border-red-300 rounded-lg"></div>
-
-                        <div class="mb-4">
-                            <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
-                            <input type="email" id="email" name="email" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="employee@scc.com" required>
-                        </div>
-                        <div class="mb-6">
-                            <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
-                            <input type="password" id="password" name="password" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="********" required>
-                        </div>
-                        <button type="submit" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg font-semibold btn-primary btn-action" ${appState.isLoading ? 'disabled' : ''}>
-                            <i class="fas fa-sign-in-alt mr-2"></i> Masuk
-                            <i class="fas fa-spinner fa-spin ml-2 ${!appState.isLoading ? 'hidden' : ''}"></i>
-                        </button>
-                    </form>
-                    <p class="text-center text-xs text-gray-400 mt-4">Atau <a href="#" onclick="window.handleShowGuestOrder()" class="text-indigo-500 hover:underline">Input Order sebagai Tamu</a></p>
-                </div>
-            `;
-             if (!appState.isLoggedIn && appState.isAuthReady) {
-                 const form = document.querySelector('form');
-                 if (form) form.onsubmit = window.handleLogin;
-             }
-        }
-
-        window.handleShowGuestOrder = function() {
-             // Sign out the current user (if any) to force the view back to guest/anon mode
-            if (auth.currentUser && !auth.currentUser.isAnonymous) {
-                signOut(auth).then(() => {
-                    // Then the onAuthStateChanged listener will handle the anonymous sign-in and view rendering
-                });
-            } else if (!auth.currentUser) {
-                // If not signed in at all, just sign in anonymously and the listener will render the view
-                signInAnonymously(auth).catch(err => {
-                    console.error("Anon sign-in failed for Guest view:", err);
-                    window.showNotification('Gagal masuk sebagai tamu. Coba refresh.', 'error');
-                });
-            }
-             // If already anonymous, rendering will happen on its own via onAuthStateChanged
-        }
-        
-        function renderDashboard() {
-            mainContent.classList.remove('justify-center', 'items-center');
-            mainContent.classList.add('justify-start', 'items-start');
-            mainContent.innerHTML = `
-                <div class="max-w-7xl mx-auto w-full py-8 px-4 sm:px-6 lg:px-8 animate-fade-in">
-                    <h2 class="text-3xl font-bold text-gray-900 mb-6">Dashboard Karyawan SCC</h2>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                        <div class="card p-5 bg-indigo-50 border-l-4 border-indigo-600">
-                            <p class="text-sm font-medium text-gray-500">Total Pesanan</p>
-                            <p class="text-3xl font-bold text-gray-900">${appState.orders.length}</p>
-                        </div>
-                        <div class="card p-5 bg-green-50 border-l-4 border-green-600">
-                            <p class="text-sm font-medium text-gray-500">Proses Aktif</p>
-                            <p class="text-3xl font-bold text-gray-900">${appState.orders.filter(o => o.status !== 'dropoff').length}</p>
-                        </div>
-                        <div class="card p-5 bg-yellow-50 border-l-4 border-yellow-600">
-                            <p class="text-sm font-medium text-gray-500">Kehadiran Hari Ini</p>
-                            <p class="text-3xl font-bold text-gray-900">${appState.attendance.filter(a => a.date === new Date().toISOString().split('T')[0] && a.type === 'in').length}</p>
-                        </div>
-                        <div class="card p-5 bg-white shadow-md">
-                            <p class="text-sm font-medium text-gray-500">Selamat datang</p>
-                            <p class="text-xl font-bold text-gray-900 truncate">${appState.username}</p>
-                            <p class="text-xs text-indigo-500 mt-1 uppercase">${appState.role} | <span class="text-gray-500">${appState.userUid.substring(0, 8)}...</span></p>
-                        </div>
-                    </div>
+                // --- 3b. Listener Perubahan Status Autentikasi (WAJIB) ---
+                const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+                    setUser(currentUser);
                     
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <!-- Left Column: Quick Actions & Attendance -->
-                        <div class="lg:col-span-1 space-y-6">
-                            <!-- Attendance Feature -->
-                            <div class="card p-6">
-                                <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-clock text-gray-500"></i> Absensi Karyawan</h3>
-                                <div class="flex space-x-3 mb-4">
-                                    <button onclick="window.handleAttendance('in')" class="flex-1 bg-green-600 text-white py-2 rounded-lg font-medium btn-primary btn-action" ${isAttendanceRecorded('in') || appState.isLoading ? 'disabled' : ''}>
-                                        <i class="fas fa-sign-in-alt mr-1"></i> Absen Masuk
-                                        <i class="fas fa-spinner fa-spin ml-2 ${!appState.isLoading ? 'hidden' : ''}"></i>
-                                    </button>
-                                    <button onclick="window.handleAttendance('out')" class="flex-1 bg-red-600 text-white py-2 rounded-lg font-medium btn-primary btn-action" ${isAttendanceRecorded('out') || appState.isLoading ? 'disabled' : ''}>
-                                        <i class="fas fa-sign-out-alt mr-1"></i> Absen Pulang
-                                        <i class="fas fa-spinner fa-spin ml-2 ${!appState.isLoading ? 'hidden' : ''}"></i>
-                                    </button>
-                                </div>
-                                <div class="mt-4 border-t pt-4">
-                                    <h4 class="text-sm font-bold text-gray-700 mb-2">Riwayat Absen Anda Hari Ini:</h4>
-                                    ${renderUserAttendanceToday()}
-                                </div>
-                            </div>
-                            
-                            <!-- Scan Feature -->
-                            <div class="card p-6">
-                                <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-qrcode text-gray-500"></i> Scan Proses Sepatu</h3>
-                                <div id="scan-simulator" class="rounded-lg mb-4 flex items-center justify-center">
-                                    <div class="scan-line"></div>
-                                    <p class="text-white font-mono text-sm opacity-50 z-10">SIMULASI SCANNING...</p>
-                                </div>
-                                <p class="text-sm text-gray-500 mb-3">Masukkan ID Pesanan untuk melanjutkan proses.</p>
-                                <input type="text" id="scan-input" placeholder="Contoh: ID Order 1234..." class="w-full px-3 py-2 border border-gray-300 rounded-md mb-3">
-                                <button onclick="window.handleScan()" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium btn-primary btn-action" ${appState.isLoading ? 'disabled' : ''}>
-                                    <i class="fas fa-search"></i> Cari & Update
-                                </button>
-                            </div>
-                        </div>
+                    unsubscribeRole(); 
 
-                        <!-- Right Column: Order List -->
-                        <div class="lg:col-span-2 space-y-6">
-                            <div class="card p-6">
-                                <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="fas fa-list-ul text-gray-500"></i> Daftar Pesanan Terbaru (<span class="text-indigo-600">${appState.orders.length}</span>)</h3>
-                                <div class="table-responsive">
-                                    ${renderOrderTable()}
-                                </div>
+                    if (currentUser) {
+                        const userDocRef = getUserRoleDocRef(currentUser.uid);
+                        
+                        unsubscribeRole = onSnapshot(userDocRef, (docSnap) => {
+                            if (docSnap.exists()) {
+                                const userRole = docSnap.data().role || 'member';
+                                console.log(`Peran pengguna (UID: ${currentUser.uid}): ${userRole}`);
+                                setRole(userRole);
+                            } else {
+                                console.log(`Dokumen peran tidak ditemukan untuk UID: ${currentUser.uid}`);
+                                setRole('guest');
+                            }
+                        }, (error) => {
+                            console.error("Error mengambil peran dari Firestore:", error);
+                            setRole('guest');
+                        });
+                    } else {
+                        setRole('guest');
+                    }
+                });
+
+                return () => {
+                    unsubscribeAuth();
+                    unsubscribeRole();
+                };
+            }, []);
+
+            const contextValue = { user, role, isAuthReady, db, auth, appId };
+
+            if (!isAuthReady) {
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                        <p className="mt-4 text-lg text-indigo-600">Menunggu Autentikasi...</p>
+                    </div>
+                );
+            }
+
+            return (
+                <AuthContext.Provider value={contextValue}>
+                    {children}
+                </AuthContext.Provider>
+            );
+        };
+
+        // --- 4. KOMPONEN LOGIN ---
+        const LoginComponent = () => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+            const { auth } = useAuth();
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+
+                try {
+                    await signInWithEmailAndPassword(auth, email, password);
+                } catch (err) {
+                    console.error(err);
+                    let errorMessage = "Gagal Login. Cek Email dan Password Anda.";
+                    
+                    // FIX: Penanganan Error 'auth/operation-not-allowed'
+                    if (err.code === 'auth/operation-not-allowed') {
+                        errorMessage = "Login Gagal: Otentikasi Email/Password belum diaktifkan di pengaturan Firebase Anda. Silakan aktifkan di konsol Firebase.";
+                    } else if (err.code === 'auth/user-not-found') {
+                        errorMessage = "Pengguna tidak ditemukan. Daftar atau cek kembali email.";
+                    } else if (err.code === 'auth/wrong-password') {
+                        errorMessage = "Password salah.";
+                    } else if (err.code === 'auth/invalid-email') {
+                         errorMessage = "Format Email tidak valid.";
+                    }
+                    setError(errorMessage);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
+                    <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl transition duration-500 ease-in-out transform hover:scale-[1.01]">
+                        <h2 className="text-3xl font-extrabold text-gray-800 text-center mb-6">Aplikasi RBAC Login</h2>
+                        <p className="text-sm text-center text-gray-500 mb-6">
+                            Gunakan <code>admin@example.com</code> atau <code>member@example.com</code>
+                        </p>
+                        <form onSubmit={handleLogin} className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                <input
+                                    type="email"
+                                    placeholder="contoh@domain.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                                    required
+                                />
                             </div>
-                        </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                <input
+                                    type="password"
+                                    placeholder="********"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                                    required
+                                />
+                            </div>
+                            {error && (
+                                <p className="text-sm text-red-600 bg-red-100 p-3 rounded-lg border border-red-200">{error}</p>
+                            )}
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className={`w-full py-3 px-4 rounded-lg text-white font-semibold shadow-md transition duration-300 ease-in-out ${
+                                    loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800'
+                                }`}
+                            >
+                                {loading ? 'Memproses...' : 'Login'}
+                            </button>
+                        </form>
                     </div>
                 </div>
-            `;
-        }
-
-        // --- Dashboard Helper Functions ---
-        
-        function getStatusColor(status) {
-            switch(status) {
-                case 'pickup': return 'bg-red-100 text-red-700';
-                case 'cleaning': return 'bg-yellow-100 text-yellow-700';
-                case 'detailing': return 'bg-blue-100 text-blue-700';
-                case 'delivery': return 'bg-indigo-100 text-indigo-700';
-                case 'dropoff': return 'bg-green-100 text-green-700';
-                default: return 'bg-gray-100 text-gray-700';
-            }
-        }
-
-        function renderOrderTable() {
-            if (appState.orders.length === 0) {
-                return '<p class="text-center text-gray-500 py-4">Belum ada pesanan yang masuk.</p>';
-            }
-
-            // Limit display to the last 20 orders for performance
-            const displayOrders = appState.orders.slice(0, 20);
-
-            let tableRows = displayOrders.map(order => `
-                <tr class="border-b hover:bg-gray-50">
-                    <td class="px-6 py-3 text-sm font-medium text-gray-900">${order.id.substring(0, 6)}...</td>
-                    <td class="px-6 py-3 text-sm">${order.customerName}</td>
-                    <td class="px-6 py-3 text-sm">${order.shoeModel}</td>
-                    <td class="px-6 py-3 text-sm font-semibold">${(order.price || 0).toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}</td>
-                    <td class="px-6 py-3">
-                        <span class="status-badge ${getStatusColor(order.status)}">
-                            ${order.status.toUpperCase()}
-                        </span>
-                    </td>
-                    <td class="px-6 py-3 text-right whitespace-nowrap">
-                        <button onclick="window.updateOrderStatus('${order.id}', '${order.status}')" class="text-indigo-600 hover:text-indigo-900 font-medium text-xs btn-action" ${order.status === 'dropoff' || appState.isLoading ? 'disabled' : ''}>
-                            Update Status <i class="fas fa-arrow-right ml-1"></i>
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
-
-            return `
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50 sticky top-0">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pelanggan</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sepatu</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Harga</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        ${tableRows}
-                    </tbody>
-                </table>
-                <p class="text-xs text-gray-400 mt-2 p-2">Menampilkan ${displayOrders.length} dari ${appState.orders.length} pesanan terbaru.</p>
-            `;
-        }
-
-        function isAttendanceRecorded(type) {
-            const today = new Date().toISOString().split('T')[0];
-            const userAttendance = appState.attendance
-                .filter(a => a.userId === appState.userUid && a.date === today && a.type === type)
-                .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)); // Newest first
-
-            // Cek apakah ada record absen masuk/pulang hari ini (untuk mencegah duplikasi)
-            return userAttendance.length > 0;
-        }
-
-
-        function renderUserAttendanceToday() {
-            const today = new Date().toISOString().split('T')[0];
-            const userAttendance = appState.attendance
-                .filter(a => a.userId === appState.userUid && a.date === today)
-                .sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-
-            if (userAttendance.length === 0) {
-                return '<p class="text-xs text-gray-500 italic">Belum ada absen hari ini.</p>';
-            }
-
-            return userAttendance.map(a => {
-                const time = a.timestamp?.seconds ? new Date(a.timestamp.seconds * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
-                const icon = a.type === 'in' ? 'fas fa-arrow-right text-green-500' : 'fas fa-arrow-left text-red-500';
-                const label = a.type === 'in' ? 'Masuk' : 'Pulang';
-                
-                return `
-                    <div class="flex justify-between items-center text-sm mb-1 px-2 py-1 bg-gray-50 rounded">
-                        <span class="font-medium">${label}</span>
-                        <span class="text-gray-600 flex items-center gap-2">
-                            <i class="${icon}"></i> ${time}
-                        </span>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        window.handleScan = function() {
-            const input = document.getElementById('scan-input').value.trim();
-            if (!input) {
-                window.showNotification('Masukkan ID Pesanan atau 6 karakter awal ID terlebih dahulu.', 'warning');
-                return;
-            }
-
-            // Find order by full ID or first 6 characters of ID
-            const foundOrder = appState.orders.find(o => 
-                o.id === input || 
-                (o.id && o.id.length >= 6 && o.id.substring(0, 6) === input.substring(0, 6))
             );
+        };
 
-            if (foundOrder) {
-                window.updateOrderStatus(foundOrder.id, foundOrder.status);
+        // --- 5. KOMPONEN DASHBOARD ADMIN ---
+        const AdminDashboard = () => {
+            return (
+                <div className="p-8 bg-indigo-50 rounded-xl shadow-lg border-2 border-indigo-200">
+                    <div className="flex items-center space-x-3 text-indigo-700 mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                        </svg>
+                        <h1 className="text-3xl font-bold">Dashboard Admin</h1>
+                    </div>
+                    <p className="text-xl text-gray-700 mt-4">
+                        Selamat datang, Administrator! Anda memiliki akses penuh ke semua fitur.
+                    </p>
+                    <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600">
+                        <li>Manajemen Pengguna (CRUD)</li>
+                        <li>Pengaturan Sistem Global</li>
+                        <li>Laporan Keuangan Rahasia</li>
+                    </ul>
+                </div>
+            );
+        };
+
+        // --- 6. KOMPONEN DASHBOARD MEMBER ---
+        const MemberDashboard = () => {
+            return (
+                <div className="p-8 bg-green-50 rounded-xl shadow-lg border-2 border-green-200">
+                     <div className="flex items-center space-x-3 text-green-700 mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" />
+                        </svg>
+                        <h1 className="text-3xl font-bold">Dashboard Member</h1>
+                    </div>
+                    <p className="text-xl text-gray-700 mt-4">
+                        Selamat datang kembali! Anda dapat mengakses fitur dasar aplikasi.
+                    </p>
+                    <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600">
+                        <li>Lihat Profil Saya</li>
+                        <li>Mengelola Data Pribadi</li>
+                        <li>Mengirim Feedback ke Admin</li>
+                    </ul>
+                </div>
+            );
+        };
+
+        // --- 7. KOMPONEN UTAMA (MAIN APP) ---
+        const AppContent = () => {
+            const { user, role, auth } = useAuth();
+            const [isLoggingOut, setIsLoggingOut] = useState(false);
+            
+            let DashboardComponent = null;
+            let roleColor = 'text-gray-500';
+
+            if (role === 'admin') {
+                DashboardComponent = AdminDashboard;
+                roleColor = 'text-indigo-600';
+            } else if (role === 'member') {
+                DashboardComponent = MemberDashboard;
+                roleColor = 'text-green-600';
             } else {
-                window.showNotification(`Pesanan dengan ID atau kode '${input}' tidak ditemukan.`, 'error');
+                // Biarkan DashboardComponent null jika peran adalah 'guest'
             }
+
+            const handleLogout = async () => {
+                setIsLoggingOut(true);
+                try {
+                    await signOut(auth);
+                } catch (error) {
+                    console.error("Gagal Logout:", error);
+                } finally {
+                    setIsLoggingOut(false);
+                }
+            };
+
+            if (user && role === 'loading') {
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                        <p className="mt-4 text-lg text-indigo-600">Memuat data peran...</p>
+                    </div>
+                );
+            }
+            
+            if (!user || role === 'guest') {
+                return <LoginComponent />;
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-50 p-6 md:p-10">
+                    <div className="flex justify-between items-center mb-10 pb-4 border-b border-gray-200">
+                        <h1 className="text-4xl font-extrabold text-gray-900">
+                            Sistem Kontrol Akses Berbasis Peran
+                        </h1>
+                        <div className="flex items-center space-x-4">
+                            <span className={`text-lg font-semibold ${roleColor}`}>
+                                Peran: {role.toUpperCase()}
+                            </span>
+                            <button
+                                onClick={handleLogout}
+                                disabled={isLoggingOut}
+                                className={`px-4 py-2 rounded-lg text-white font-medium transition duration-300 ease-in-out ${
+                                    isLoggingOut ? 'bg-red-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 shadow-md'
+                                }`}
+                            >
+                                {isLoggingOut ? 'Keluar...' : 'Logout'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="mt-8">
+                        {DashboardComponent ? (
+                            <DashboardComponent />
+                        ) : (
+                            <div className="p-6 bg-yellow-100 rounded-xl border border-yellow-300 text-yellow-800">
+                                <p className="font-semibold">Peringatan: Peran {role} tidak dikenal atau tidak memiliki dashboard khusus.</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Tampilkan detail teknis di bagian bawah */}
+                    <div className="mt-12 pt-8 border-t border-gray-200 text-sm text-gray-500">
+                        <p>UID Pengguna: <code className="bg-gray-200 p-1 rounded break-all">{user.uid}</code></p>
+                        <p>App ID: <code className="bg-gray-200 p-1 rounded">{appId}</code></p>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- KOMPONEN ROOT: Pembungkus Auth Provider ---
+        function App() {
+            return (
+                <AuthProvider>
+                    <AppContent />
+                </AuthProvider>
+            );
         }
 
-        // --- STARTUP LOGIC ---
-
-        document.addEventListener('DOMContentLoaded', () => {
-            if (initializeFirebase()) {
-                setupAuthListener();
-            }
-            // If initializeFirebase() returns false, the critical error screen is already rendered.
-        });
+        // Render aplikasi ke DOM
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
     </script>
 </body>
 </html>
