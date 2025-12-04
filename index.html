@@ -3,384 +3,271 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RBAC App - Siap Deploy</title>
-    <!-- CDN untuk Tailwind CSS (untuk styling) -->
+    <title>OP Sync Dashboard - Order & Absen</title>
+    <!-- Memuat Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- CDN untuk React dan ReactDOM -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- CDN untuk Babel (mengizinkan browser membaca JSX di <script type="text/babel">) -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- CDN untuk Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Atur log level ke Debug untuk melihat semua aktivitas Firebase di console
-        setLogLevel('debug');
-
-        // --- GLOBAL VARIABLES (Diambil dari lingkungan Canvas) ---
-        // Jika Anda menjalankan file ini di luar Canvas, Anda harus mengisi nilai-nilai ini secara manual
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'rbac-app-demo';
-        // PENTING: Jika Anda menjalankan ini secara lokal, GANTI {} dengan konfigurasi Firebase project Anda!
-        const firebaseConfig = typeof __firebase_config !== 'undefined' 
-            ? JSON.parse(__firebase_config) 
-            : { apiKey: "", authDomain: "", projectId: "" /* ... lainnya */ };
-        
-        // FIX: Menggunakan nama variabel global yang benar: __initial_auth_token
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null; 
-        
-        // --- 1. INISIALISASI FIREBASE ---
-        window.app = initializeApp(firebaseConfig);
-        window.db = getFirestore(window.app);
-        window.auth = getAuth(window.app);
-        window.initialAuthToken = initialAuthToken; 
-
-        // Export fungsi-fungsi Firebase ke window agar bisa diakses oleh kode Babel
-        window.FirebaseServices = {
-            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signInWithEmailAndPassword, signOut,
-            getFirestore, doc, onSnapshot, setLogLevel
-        };
-        window.GlobalConfig = { appId, initialAuthToken };
-    </script>
+    <!-- Konfigurasi Font Inter -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* Biru muda sangat terang */
+        }
+        .tab-button {
+            padding: 10px 20px;
+            font-weight: 600;
+            border-radius: 12px 12px 0 0;
+            transition: all 0.2s;
+        }
+        .tab-button.active {
+            background-color: white;
+            color: #1d4ed8;
+            border-bottom: 3px solid #1d4ed8;
+        }
+    </style>
 </head>
 <body>
-    <div id="root">
-        <!-- Loader sederhana sebelum React dimuat -->
-        <div class="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-            <p class="mt-4 text-lg text-indigo-600">Memuat Aplikasi...</p>
-        </div>
+
+    <div id="app" class="min-h-screen flex flex-col items-center p-4 sm:p-8">
+        <!-- Header -->
+        <header class="w-full max-w-6xl mb-6 p-4 bg-white shadow-xl rounded-xl">
+            <h1 class="text-3xl font-bold text-gray-800">OP Sync Dashboard</h1>
+            <p id="auth-status" class="text-sm font-medium text-gray-500 mt-1">Status: Memuat koneksi...</p>
+            <p class="text-xs font-mono bg-gray-100 p-2 mt-2 rounded-lg break-all">ID Pengguna: <span id="display-user-id">...</span> | ID Aplikasi: <span id="display-app-id">...</span></p>
+        </header>
+
+        <!-- Navigasi Tab -->
+        <nav class="w-full max-w-6xl flex justify-start bg-gray-200 rounded-t-xl shadow-md">
+            <button class="tab-button active" data-tab="order-input">Input Pesanan</button>
+            <button class="tab-button" data-tab="order-tracking">Pelacakan Pesanan</button>
+            <button class="tab-button" data-tab="attendance">Absensi (Private)</button>
+        </nav>
+
+        <!-- Konten Utama -->
+        <main class="w-full max-w-6xl p-6 bg-white shadow-xl rounded-b-xl min-h-[60vh]">
+            <!-- Panel Input Pesanan -->
+            <div id="order-input" class="tab-content">
+                <h2 class="text-2xl font-semibold mb-4 text-blue-700">1. Input Pesanan Baru</h2>
+                <form id="order-form" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="md:col-span-2">
+                        <label for="item-name" class="block text-sm font-medium text-gray-700">Nama Item / Produk</label>
+                        <input type="text" id="item-name" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label for="quantity" class="block text-sm font-medium text-gray-700">Jumlah</label>
+                        <input type="number" id="quantity" required min="1" value="1" class="mt-1 block w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label for="priority" class="block text-sm font-medium text-gray-700">Prioritas Awal</label>
+                        <select id="priority" class="mt-1 block w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                            <option value="Normal">Normal</option>
+                            <option value="Tinggi">Tinggi</option>
+                            <option value="Mendesak">Mendesak</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <button type="submit" id="submit-order-btn" 
+                                class="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition duration-150 disabled:bg-blue-300">
+                            Kirim Pesanan Baru
+                        </button>
+                    </div>
+                </form>
+                <p id="order-message" class="mt-4 p-3 rounded-lg text-center hidden"></p>
+            </div>
+
+            <!-- Panel Pelacakan Pesanan -->
+            <div id="order-tracking" class="tab-content hidden">
+                <h2 class="text-2xl font-semibold mb-4 text-blue-700">2. Pelacakan Pesanan Real-Time</h2>
+                <div class="overflow-x-auto rounded-lg shadow-md border">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Pesanan</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pengirim</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Waktu</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-list" class="bg-white divide-y divide-gray-200">
+                            <!-- Pesanan akan dimuat di sini -->
+                            <tr><td colspan="6" class="p-4 text-center text-gray-500">Memuat data pesanan publik...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Panel Absensi -->
+            <div id="attendance" class="tab-content hidden">
+                <h2 class="text-2xl font-semibold mb-4 text-blue-700">3. Absensi Harian (Data Pribadi)</h2>
+                
+                <div class="flex space-x-4 mb-6">
+                    <button id="check-in-btn" class="flex-1 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-150 disabled:bg-gray-400">
+                        Check In (Masuk)
+                    </button>
+                    <button id="check-out-btn" class="flex-1 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition duration-150 disabled:bg-gray-400">
+                        Check Out (Pulang)
+                    </button>
+                </div>
+                <p id="absen-message" class="mb-4 p-3 rounded-lg text-center hidden"></p>
+
+                <h3 class="text-xl font-semibold mb-3 text-gray-700">Riwayat Absensi Saya</h3>
+                <div class="overflow-x-auto rounded-lg shadow-md border">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Masuk</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pulang</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendance-list" class="bg-white divide-y divide-gray-200">
+                            <!-- Riwayat absen akan dimuat di sini -->
+                            <tr><td colspan="4" class="p-4 text-center text-gray-500">Memuat riwayat absensi pribadi...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
     </div>
 
-    <!-- Kode React/JSX dimuat melalui Babel -->
-    <script type="text/babel">
-        // Mengambil variabel global dan layanan Firebase dari window
-        const { useState, useEffect, createContext, useContext } = React;
-        const { appId, initialAuthToken } = window.GlobalConfig;
-        const { 
-            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
-            signInWithEmailAndPassword, signOut, getFirestore, doc, onSnapshot 
-        } = window.FirebaseServices;
+    <!-- Firebase SDK Imports (Module) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            doc,
+            addDoc, 
+            setDoc,
+            query, 
+            onSnapshot, 
+            serverTimestamp,
+            setLogLevel,
+            where
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const db = window.db;
-        const auth = window.auth;
+        // --- Konfigurasi dan Inisialisasi Global ---
+        setLogLevel('debug');
 
-        // Path Firestore untuk peran pengguna (sesuai aturan keamanan publik)
-        const getUserRoleDocRef = (userId) => {
-            // Path: /artifacts/{appId}/public/data/user_roles/{userId}
-            return doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', userId);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'op-sync-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app;
+        let db;
+        let auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        // Elemen UI
+        const authStatusEl = document.getElementById('auth-status');
+        const displayUserIdEl = document.getElementById('display-user-id');
+        const displayAppIdEl = document.getElementById('display-app-id');
+        const ordersListEl = document.getElementById('orders-list');
+        const attendanceListEl = document.getElementById('attendance-list');
+        const orderMessageEl = document.getElementById('order-message');
+        const absenMessageEl = document.getElementById('absen-message');
+        const checkInBtn = document.getElementById('check-in-btn');
+        const checkOutBtn = document.getElementById('check-out-btn');
+        const submitOrderBtn = document.getElementById('submit-order-btn');
+
+        // Fungsi utilitas untuk format tanggal
+        const formatDate = (timestamp) => {
+            if (!timestamp) return 'N/A';
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            return date.toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
         };
+        const formatTime = (timestamp) => {
+            if (!timestamp) return 'Belum';
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        };
+        const getCurrentDateKey = () => new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-        // --- 2. CONTEXT UNTUK MANAJEMEN STATUS AUTH & ROLE ---
-        const AuthContext = createContext(null);
-        const useAuth = () => useContext(AuthContext);
+        // --- 1. Inisialisasi Firebase & Autentikasi ---
 
-        // --- 3. KOMPONEN PENYEDIA (PROVIDER) AUTHENTIKASI ---
-        const AuthProvider = ({ children }) => {
-            const [user, setUser] = useState(null); 
-            const [role, setRole] = useState('loading'); 
-            const [isAuthReady, setIsAuthReady] = useState(false);
-
-            useEffect(() => {
-                let unsubscribeRole = () => {};
+        if (Object.keys(firebaseConfig).length > 0) {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                displayAppIdEl.textContent = appId;
                 
-                // --- 3a. Inisialisasi Auth Pertama Kali ---
-                const setupAuth = async () => {
-                    // FIX: Hanya mencoba Custom Token. Jika gagal, biarkan user = null untuk mencegah error 'auth/operation-not-allowed' dari signInAnonymously
-                    if (initialAuthToken) {
-                        try {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } catch (error) {
-                            console.error("Gagal masuk dengan token kustom:", error);
-                            // Tidak mencoba signInAnonymously untuk menghindari error konfigurasi Firebase
-                        }
-                    } 
-                    // Jika tidak ada token kustom, atau jika token kustom gagal, user akan null dan app menampilkan Login
-                    setIsAuthReady(true);
-                };
-
-                // Memastikan inisialisasi berjalan sekali
-                if (auth && !isAuthReady) {
-                    setupAuth();
-                }
-
-                // --- 3b. Listener Perubahan Status Autentikasi (WAJIB) ---
-                const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-                    setUser(currentUser);
-                    
-                    unsubscribeRole(); 
-
-                    if (currentUser) {
-                        const userDocRef = getUserRoleDocRef(currentUser.uid);
-                        
-                        unsubscribeRole = onSnapshot(userDocRef, (docSnap) => {
-                            if (docSnap.exists()) {
-                                const userRole = docSnap.data().role || 'member';
-                                console.log(`Peran pengguna (UID: ${currentUser.uid}): ${userRole}`);
-                                setRole(userRole);
-                            } else {
-                                console.log(`Dokumen peran tidak ditemukan untuk UID: ${currentUser.uid}`);
-                                setRole('guest');
-                            }
-                        }, (error) => {
-                            console.error("Error mengambil peran dari Firestore:", error);
-                            setRole('guest');
-                        });
-                    } else {
-                        setRole('guest');
-                    }
-                });
-
-                return () => {
-                    unsubscribeAuth();
-                    unsubscribeRole();
-                };
-            }, []);
-
-            const contextValue = { user, role, isAuthReady, db, auth, appId };
-
-            if (!isAuthReady) {
-                return (
-                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                        <p className="mt-4 text-lg text-indigo-600">Menunggu Autentikasi...</p>
-                    </div>
-                );
+                // Mulai proses autentikasi
+                initAuth();
+            } catch (error) {
+                console.error("Kesalahan inisialisasi Firebase:", error);
+                authStatusEl.textContent = 'Status: GAGAL (Kesalahan Konfigurasi)';
             }
-
-            return (
-                <AuthContext.Provider value={contextValue}>
-                    {children}
-                </AuthContext.Provider>
-            );
-        };
-
-        // --- 4. KOMPONEN LOGIN ---
-        const LoginComponent = () => {
-            const [email, setEmail] = useState('');
-            const [password, setPassword] = useState('');
-            const [error, setError] = useState('');
-            const [loading, setLoading] = useState(false);
-            const { auth } = useAuth();
-
-            const handleLogin = async (e) => {
-                e.preventDefault();
-                setError('');
-                setLoading(true);
-
-                try {
-                    await signInWithEmailAndPassword(auth, email, password);
-                } catch (err) {
-                    console.error(err);
-                    let errorMessage = "Gagal Login. Cek Email dan Password Anda.";
-                    
-                    // FIX: Penanganan Error 'auth/operation-not-allowed'
-                    if (err.code === 'auth/operation-not-allowed') {
-                        errorMessage = "Login Gagal: Otentikasi Email/Password belum diaktifkan di pengaturan Firebase Anda. Silakan aktifkan di konsol Firebase.";
-                    } else if (err.code === 'auth/user-not-found') {
-                        errorMessage = "Pengguna tidak ditemukan. Daftar atau cek kembali email.";
-                    } else if (err.code === 'auth/wrong-password') {
-                        errorMessage = "Password salah.";
-                    } else if (err.code === 'auth/invalid-email') {
-                         errorMessage = "Format Email tidak valid.";
-                    }
-                    setError(errorMessage);
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            return (
-                <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
-                    <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl transition duration-500 ease-in-out transform hover:scale-[1.01]">
-                        <h2 className="text-3xl font-extrabold text-gray-800 text-center mb-6">Aplikasi RBAC Login</h2>
-                        <p className="text-sm text-center text-gray-500 mb-6">
-                            Gunakan <code>admin@example.com</code> atau <code>member@example.com</code>
-                        </p>
-                        <form onSubmit={handleLogin} className="space-y-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                                <input
-                                    type="email"
-                                    placeholder="contoh@domain.com"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                                <input
-                                    type="password"
-                                    placeholder="********"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
-                                    required
-                                />
-                            </div>
-                            {error && (
-                                <p className="text-sm text-red-600 bg-red-100 p-3 rounded-lg border border-red-200">{error}</p>
-                            )}
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className={`w-full py-3 px-4 rounded-lg text-white font-semibold shadow-md transition duration-300 ease-in-out ${
-                                    loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800'
-                                }`}
-                            >
-                                {loading ? 'Memproses...' : 'Login'}
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            );
-        };
-
-        // --- 5. KOMPONEN DASHBOARD ADMIN ---
-        const AdminDashboard = () => {
-            return (
-                <div className="p-8 bg-indigo-50 rounded-xl shadow-lg border-2 border-indigo-200">
-                    <div className="flex items-center space-x-3 text-indigo-700 mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                        </svg>
-                        <h1 className="text-3xl font-bold">Dashboard Admin</h1>
-                    </div>
-                    <p className="text-xl text-gray-700 mt-4">
-                        Selamat datang, Administrator! Anda memiliki akses penuh ke semua fitur.
-                    </p>
-                    <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600">
-                        <li>Manajemen Pengguna (CRUD)</li>
-                        <li>Pengaturan Sistem Global</li>
-                        <li>Laporan Keuangan Rahasia</li>
-                    </ul>
-                </div>
-            );
-        };
-
-        // --- 6. KOMPONEN DASHBOARD MEMBER ---
-        const MemberDashboard = () => {
-            return (
-                <div className="p-8 bg-green-50 rounded-xl shadow-lg border-2 border-green-200">
-                     <div className="flex items-center space-x-3 text-green-700 mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" />
-                        </svg>
-                        <h1 className="text-3xl font-bold">Dashboard Member</h1>
-                    </div>
-                    <p className="text-xl text-gray-700 mt-4">
-                        Selamat datang kembali! Anda dapat mengakses fitur dasar aplikasi.
-                    </p>
-                    <ul className="list-disc list-inside mt-4 space-y-2 text-gray-600">
-                        <li>Lihat Profil Saya</li>
-                        <li>Mengelola Data Pribadi</li>
-                        <li>Mengirim Feedback ke Admin</li>
-                    </ul>
-                </div>
-            );
-        };
-
-        // --- 7. KOMPONEN UTAMA (MAIN APP) ---
-        const AppContent = () => {
-            const { user, role, auth } = useAuth();
-            const [isLoggingOut, setIsLoggingOut] = useState(false);
-            
-            let DashboardComponent = null;
-            let roleColor = 'text-gray-500';
-
-            if (role === 'admin') {
-                DashboardComponent = AdminDashboard;
-                roleColor = 'text-indigo-600';
-            } else if (role === 'member') {
-                DashboardComponent = MemberDashboard;
-                roleColor = 'text-green-600';
-            } else {
-                // Biarkan DashboardComponent null jika peran adalah 'guest'
-            }
-
-            const handleLogout = async () => {
-                setIsLoggingOut(true);
-                try {
-                    await signOut(auth);
-                } catch (error) {
-                    console.error("Gagal Logout:", error);
-                } finally {
-                    setIsLoggingOut(false);
-                }
-            };
-
-            if (user && role === 'loading') {
-                return (
-                    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                        <p className="mt-4 text-lg text-indigo-600">Memuat data peran...</p>
-                    </div>
-                );
-            }
-            
-            if (!user || role === 'guest') {
-                return <LoginComponent />;
-            }
-
-            return (
-                <div className="min-h-screen bg-gray-50 p-6 md:p-10">
-                    <div className="flex justify-between items-center mb-10 pb-4 border-b border-gray-200">
-                        <h1 className="text-4xl font-extrabold text-gray-900">
-                            Sistem Kontrol Akses Berbasis Peran
-                        </h1>
-                        <div className="flex items-center space-x-4">
-                            <span className={`text-lg font-semibold ${roleColor}`}>
-                                Peran: {role.toUpperCase()}
-                            </span>
-                            <button
-                                onClick={handleLogout}
-                                disabled={isLoggingOut}
-                                className={`px-4 py-2 rounded-lg text-white font-medium transition duration-300 ease-in-out ${
-                                    isLoggingOut ? 'bg-red-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 shadow-md'
-                                }`}
-                            >
-                                {isLoggingOut ? 'Keluar...' : 'Logout'}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="mt-8">
-                        {DashboardComponent ? (
-                            <DashboardComponent />
-                        ) : (
-                            <div className="p-6 bg-yellow-100 rounded-xl border border-yellow-300 text-yellow-800">
-                                <p className="font-semibold">Peringatan: Peran {role} tidak dikenal atau tidak memiliki dashboard khusus.</p>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Tampilkan detail teknis di bagian bawah */}
-                    <div className="mt-12 pt-8 border-t border-gray-200 text-sm text-gray-500">
-                        <p>UID Pengguna: <code className="bg-gray-200 p-1 rounded break-all">{user.uid}</code></p>
-                        <p>App ID: <code className="bg-gray-200 p-1 rounded">{appId}</code></p>
-                    </div>
-                </div>
-            );
-        };
-
-        // --- KOMPONEN ROOT: Pembungkus Auth Provider ---
-        function App() {
-            return (
-                <AuthProvider>
-                    <AppContent />
-                </AuthProvider>
-            );
+        } else {
+            authStatusEl.textContent = 'Status: GAGAL (Konfigurasi Firebase Tidak Ada)';
+            console.error('Firebase config is missing or invalid.');
         }
 
-        // Render aplikasi ke DOM
-        const container = document.getElementById('root');
-        const root = ReactDOM.createRoot(container);
-        root.render(<App />);
-    </script>
-</body>
-</html>
+        async function initAuth() {
+            authStatusEl.textContent = 'Status: Mencoba autentikasi...';
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    // Pengguna berhasil masuk
+                    userId = user.uid;
+                    isAuthReady = true;
+                    
+                    authStatusEl.textContent = 'Status: Terautentikasi';
+                    displayUserIdEl.textContent = userId;
+
+                    // Aktifkan tombol
+                    submitOrderBtn.disabled = false;
+                    checkInBtn.disabled = false;
+                    checkOutBtn.disabled = false;
+
+                    // Mulai mendengarkan data setelah autentikasi
+                    setupRealtimeListeners();
+                } else {
+                    // Coba masuk jika belum ada user
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Kesalahan saat mencoba masuk:", error);
+                        authStatusEl.textContent = 'Status: GAGAL MASUK (Periksa Aturan Keamanan)';
+                        displayUserIdEl.textContent = 'Anonim/Gagal';
+                    }
+                }
+            });
+        }
+
+        // --- 2. Realtime Listeners (Dipanggil setelah auth berhasil) ---
+
+        function setupRealtimeListeners() {
+            if (!isAuthReady || !userId) return;
+
+            // a. Listener untuk Order Tracking (Data Publik)
+            const ordersPath = `/artifacts/${appId}/public/data/orders`;
+            const ordersQuery = query(collection(db, ordersPath));
+            
+            console.log(`Menyiapkan listener untuk Orders (Publik): ${ordersPath}`);
+
+            onSnapshot(ordersQuery, (snapshot) => {
+                const orders = [];
+                snapshot.forEach(doc => {
+                    orders.push({ id: doc.id, ...doc.data() });
+                });
+                // Sortir berdasarkan waktu terbaru (descending)
+                orders.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                renderOrders(orders);
+            }, (error) => {
+                console.error("Kesalahan pada listener Orders:", error);
+                ordersListEl.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">Gagal memuat orders. Izin DITOLAK.</td></tr>`;
+            });
+
+
+            // b. Listener untuk Absensi (Data Privat
